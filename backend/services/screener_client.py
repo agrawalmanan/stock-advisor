@@ -11,7 +11,7 @@ SCREENER_HEADERS = {
 
 def _to_float(value: str):
     try:
-        value = str(value).replace(",", "").replace("%", "").strip()
+        value = str(value).replace(",", "").replace("%", "").replace("₹", "").strip()
         if value in ["", "-", "N/A", "None"]:
             return None
         return float(value)
@@ -30,7 +30,6 @@ def _extract_last_number(text: str):
 def get_screener_data(symbol: str) -> dict:
     """
     Scrape comprehensive data from Screener.in
-    Returns fundamentals + sector/industry + key financial metrics
     """
     cache_key = f"screener_full_{symbol}"
     cached = get_cache(cache_key)
@@ -52,115 +51,176 @@ def get_screener_data(symbol: str) -> dict:
 
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # ---- Extract Sector/Industry ----
-            sector = "Unknown"
-            industry = "Unknown"
-
-            # Method 1: From company profile section
-            for a in soup.select("a"):
-                href = a.get("href", "")
-                if "/sector/" in href:
-                    industry = a.get_text(strip=True)
-                    break
-
-            # Method 2: From breadcrumb or header
-            for el in soup.select(".company-info a, .sub-heading a"):
-                href = el.get("href", "")
-                if "/sector/" in href:
-                    industry = el.get_text(strip=True)
-                    break
-
-            # Map industry to broader sector
-            sector = _map_industry_to_sector(industry)
-
-            # ---- Extract Ratios ----
-            values = {}
-            for li in soup.select("ul#top-ratios li"):
-                spans = li.select("span")
-                if len(spans) >= 2:
-                    key = spans[0].get_text(" ", strip=True).lower()
-                    value = spans[-1].get_text(" ", strip=True)
-                    values[key] = value
-
-            # Parse individual values
+            # ========== TOP RATIOS ==========
             market_cap = None
             pe_ratio = None
             book_value = None
             dividend_yield = None
             roce = None
             roe = None
+            face_value = None
+
+            for li in soup.select("ul#top-ratios li"):
+                spans = li.select("span")
+                if len(spans) >= 2:
+                    label = spans[0].get_text(strip=True).lower()
+                    value = spans[-1].get_text(strip=True)
+
+                    if "market cap" in label:
+                        market_cap = _extract_last_number(value)
+                    elif "stock p/e" in label:
+                        pe_ratio = _to_float(value)
+                    elif "book value" in label:
+                        book_value = _to_float(value)
+                    elif "dividend yield" in label:
+                        dividend_yield = _to_float(value)
+                    elif "roce" in label:
+                        roce = _to_float(value)
+                    elif "roe" in label:
+                        roe = _to_float(value)
+                    elif "face value" in label:
+                        face_value = _to_float(value)
+
+            # ========== INDUSTRY/SECTOR ==========
+            industry = "Unknown"
+            # Try company info section
+            company_info = soup.select_one(".company-info")
+            if company_info:
+                for a in company_info.select("a"):
+                    href = a.get("href", "")
+                    if "/sector/" in href:
+                        industry = a.get_text(strip=True)
+                        break
+
+            # Fallback: search all links
+            if industry == "Unknown":
+                for a in soup.select("a"):
+                    href = a.get("href", "")
+                    if "/sector/" in href:
+                        industry = a.get_text(strip=True)
+                        break
+
+            sector = _map_industry_to_sector(industry)
+
+            # ========== PROFIT & LOSS TABLE ==========
+            opm = None
+            revenue_growth = None
+            profit_growth = None
+            net_profit_latest = None
+
+            for section in soup.select("section"):
+                heading = section.select_one("h2")
+                if not heading:
+                    continue
+                h_text = heading.get_text(strip=True).lower()
+
+                # Profit & Loss (Annual)
+                if "profit" in h_text and "loss" in h_text and "quarter" not in h_text:
+                    table = section.select_one("table")
+                    if table:
+                        for tr in table.select("tr"):
+                            cells = [td.get_text(strip=True) for td in tr.select("td, th")]
+                            if not cells:
+                                continue
+
+                            row_label = cells[0].lower()
+
+                            # OPM %
+                            if "opm" in row_label:
+                                if len(cells) >= 2:
+                                    opm = _to_float(cells[-1])
+
+                            # Sales for revenue growth
+                            if "sales" in row_label:
+                                if len(cells) >= 3:
+                                    prev_sales = _to_float(cells[-2])
+                                    curr_sales = _to_float(cells[-1])
+                                    if prev_sales and curr_sales and prev_sales > 0:
+                                        revenue_growth = safe_round(((curr_sales - prev_sales) / prev_sales) * 100)
+
+                            # Net Profit for earnings growth
+                            if "net profit" in row_label:
+                                if len(cells) >= 3:
+                                    prev_profit = _to_float(cells[-2])
+                                    curr_profit = _to_float(cells[-1])
+                                    if prev_profit and curr_profit and prev_profit > 0:
+                                        profit_growth = safe_round(((curr_profit - prev_profit) / prev_profit) * 100)
+                                    if len(cells) >= 2:
+                                        net_profit_latest = _to_float(cells[-1])
+
+            # ========== BALANCE SHEET TABLE ==========
             debt_to_equity = None
+            total_borrowings = None
+            total_equity = None
+
+            for section in soup.select("section"):
+                heading = section.select_one("h2")
+                if not heading:
+                    continue
+                h_text = heading.get_text(strip=True).lower()
+
+                if "balance" in h_text and "sheet" in h_text:
+                    table = section.select_one("table")
+                    if table:
+                        for tr in table.select("tr"):
+                            cells = [td.get_text(strip=True) for td in tr.select("td, th")]
+                            if not cells:
+                                continue
+
+                            row_label = cells[0].lower()
+
+                            # Borrowings
+                            if "borrowing" in row_label:
+                                if len(cells) >= 2:
+                                    total_borrowings = _to_float(cells[-1])
+
+                            # Equity + Reserves
+                            if "reserves" in row_label:
+                                if len(cells) >= 2:
+                                    reserves = _to_float(cells[-1])
+
+                            if "equity capital" in row_label:
+                                if len(cells) >= 2:
+                                    equity_capital = _to_float(cells[-1])
+
+                        # Calculate D/E
+                        try:
+                            if total_borrowings is not None:
+                                total_eq = (equity_capital or 0) + (reserves or 0)
+                                if total_eq > 0:
+                                    debt_to_equity = safe_round(total_borrowings / total_eq)
+                        except Exception:
+                            pass
+
+            # ========== SHAREHOLDING ==========
             promoter_holding = None
             fii_holding = None
             dii_holding = None
-            revenue_growth = None
-            profit_growth = None
-            opm = None
 
-            for k, v in values.items():
-                if "market cap" in k:
-                    market_cap = _extract_last_number(v)
-                elif "stock p/e" in k:
-                    pe_ratio = _extract_last_number(v)
-                elif "book value" in k:
-                    book_value = _extract_last_number(v)
-                elif "dividend yield" in k:
-                    dividend_yield = _extract_last_number(v)
-                elif "roce" in k:
-                    roce = _extract_last_number(v)
-                elif "roe" in k:
-                    roe = _extract_last_number(v)
+            for section in soup.select("section"):
+                heading = section.select_one("h2")
+                if not heading:
+                    continue
+                if "holding" in heading.get_text(strip=True).lower():
+                    table = section.select_one("table")
+                    if table:
+                        for tr in table.select("tr"):
+                            cells = [td.get_text(strip=True) for td in tr.select("td, th")]
+                            if len(cells) >= 2:
+                                label = cells[0].lower()
+                                val = _to_float(cells[-1])
+                                if "promoter" in label and "pledge" not in label:
+                                    promoter_holding = val
+                                elif "fii" in label or "foreign" in label:
+                                    fii_holding = val
+                                elif "dii" in label or "domestic" in label:
+                                    dii_holding = val
 
-            # ---- Extract Shareholding ----
-            for table in soup.select("table"):
-                for tr in table.select("tr"):
-                    tds = tr.select("td")
-                    if len(tds) >= 2:
-                        label = tds[0].get_text(strip=True).lower()
-                        val = tds[-1].get_text(strip=True)
-                        if "promoter" in label and "pledge" not in label:
-                            promoter_holding = _extract_last_number(val)
-                        elif "fii" in label or "foreign" in label:
-                            fii_holding = _extract_last_number(val)
-                        elif "dii" in label or "domestic" in label:
-                            dii_holding = _extract_last_number(val)
-
-            # ---- Extract Growth from Profit & Loss ----
-            for table in soup.select("table"):
-                headers = [th.get_text(strip=True) for th in table.select("th")]
-                if "Sales" in str(headers) or "Revenue" in str(headers):
-                    for tr in table.select("tr"):
-                        label_el = tr.select_one("td")
-                        if label_el:
-                            label = label_el.get_text(strip=True).lower()
-                            tds = tr.select("td")
-                            if "sales" in label or "revenue" in label:
-                                if len(tds) >= 3:
-                                    try:
-                                        prev = _to_float(tds[-2].get_text(strip=True))
-                                        curr = _to_float(tds[-1].get_text(strip=True))
-                                        if prev and curr and prev > 0:
-                                            revenue_growth = safe_round(((curr - prev) / prev) * 100)
-                                    except Exception:
-                                        pass
-                            elif "net profit" in label or "profit" in label:
-                                if len(tds) >= 3:
-                                    try:
-                                        prev = _to_float(tds[-2].get_text(strip=True))
-                                        curr = _to_float(tds[-1].get_text(strip=True))
-                                        if prev and curr and prev > 0:
-                                            profit_growth = safe_round(((curr - prev) / prev) * 100)
-                                    except Exception:
-                                        pass
-                            elif "opm" in label or "operating profit margin" in label:
-                                if len(tds) >= 2:
-                                    opm = _extract_last_number(tds[-1].get_text(strip=True))
-
-            # ---- Extract Debt to Equity from Balance Sheet ----
-            for el in soup.select(".company-ratios li, .ratio-list li"):
-                text = el.get_text(" ", strip=True).lower()
-                if "debt" in text and "equity" in text:
-                    debt_to_equity = _extract_last_number(el.get_text(strip=True))
+            # ========== PROFIT MARGIN ==========
+            profit_margin = None
+            if net_profit_latest and market_cap:
+                # Approximate: we have sales from P&L
+                pass  # We'll use OPM instead
 
             result = {
                 "sector": sector,
@@ -172,7 +232,7 @@ def get_screener_data(symbol: str) -> dict:
                 "roce_pct": safe_round(roce) if roce is not None else None,
                 "roe_pct": safe_round(roe) if roe is not None else None,
                 "opm_pct": safe_round(opm) if opm is not None else None,
-                "debt_to_equity": safe_round(debt_to_equity) if debt_to_equity is not None else None,
+                "debt_to_equity": debt_to_equity,
                 "promoter_holding": safe_round(promoter_holding) if promoter_holding is not None else None,
                 "fii_holding": safe_round(fii_holding) if fii_holding is not None else None,
                 "dii_holding": safe_round(dii_holding) if dii_holding is not None else None,
@@ -182,94 +242,69 @@ def get_screener_data(symbol: str) -> dict:
             }
 
             set_cache(cache_key, result, ttl_seconds=86400)
-            print(f"[SCREENER] Got data for {clean_symbol}: sector={sector}, industry={industry}")
+            print(f"[SCREENER] Got data for {clean_symbol}: sector={sector}, industry={industry}, opm={opm}, d/e={debt_to_equity}, rev_growth={revenue_growth}")
             return result
 
         except Exception as e:
             print(f"[SCREENER] Error for {clean_symbol} via {url}: {e}")
+            import traceback
+            traceback.print_exc()
 
     return _empty_screener_result()
 
 
 def _empty_screener_result():
     return {
-        "sector": "Unknown",
-        "industry": "Unknown",
-        "market_cap_cr": None,
-        "pe_ratio": None,
-        "book_value": None,
-        "dividend_yield_pct": None,
-        "roce_pct": None,
-        "roe_pct": None,
-        "opm_pct": None,
-        "debt_to_equity": None,
-        "promoter_holding": None,
-        "fii_holding": None,
-        "dii_holding": None,
-        "revenue_growth": None,
-        "profit_growth": None,
+        "sector": "Unknown", "industry": "Unknown",
+        "market_cap_cr": None, "pe_ratio": None, "book_value": None,
+        "dividend_yield_pct": None, "roce_pct": None, "roe_pct": None,
+        "opm_pct": None, "debt_to_equity": None,
+        "promoter_holding": None, "fii_holding": None, "dii_holding": None,
+        "revenue_growth": None, "profit_growth": None,
         "source": "screener"
     }
 
 
-# Keep old function name for backward compatibility
 def get_screener_fundamentals(symbol: str) -> dict:
     return get_screener_data(symbol)
 
 
 def _map_industry_to_sector(industry: str) -> str:
-    """Map Screener.in industry name to a broader sector"""
     industry_lower = industry.lower()
 
     SECTOR_MAP = {
-        # Technology
         "software": "Information Technology",
         "it ": "Information Technology",
         "computer": "Information Technology",
         "digital": "Information Technology",
         "tech": "Information Technology",
-
-        # Banking
         "bank": "Banking",
         "banking": "Banking",
-
-        # Financial Services
         "finance": "Financial Services",
         "insurance": "Financial Services",
         "nbfc": "Financial Services",
         "capital market": "Financial Services",
         "housing finance": "Financial Services",
-
-        # Oil & Gas
         "oil": "Oil & Gas",
         "gas": "Oil & Gas",
         "petroleum": "Oil & Gas",
         "refiner": "Oil & Gas",
-
-        # Pharma
         "pharma": "Pharmaceuticals",
         "drug": "Pharmaceuticals",
         "healthcare": "Healthcare",
         "hospital": "Healthcare",
         "diagnostic": "Healthcare",
-
-        # Auto
         "auto": "Automobile",
         "vehicle": "Automobile",
         "tyre": "Automobile",
-        "tire": "Automobile",
         "two wheeler": "Automobile",
         "three wheeler": "Automobile",
-
-        # FMCG
         "fmcg": "FMCG",
         "consumer": "FMCG",
         "food": "FMCG",
         "beverage": "FMCG",
         "personal care": "FMCG",
         "tobacco": "FMCG",
-
-        # Metals
         "steel": "Metals & Mining",
         "iron": "Metals & Mining",
         "metal": "Metals & Mining",
@@ -277,79 +312,49 @@ def _map_industry_to_sector(industry: str) -> str:
         "aluminium": "Metals & Mining",
         "copper": "Metals & Mining",
         "zinc": "Metals & Mining",
-
-        # Cement
         "cement": "Cement",
-
-        # Paints
         "paint": "Paints",
         "coating": "Paints",
         "decorative": "Paints",
-
-        # Power
         "power": "Power & Utilities",
         "electric": "Power & Utilities",
         "energy": "Power & Utilities",
         "renewable": "Power & Utilities",
         "solar": "Power & Utilities",
         "wind": "Power & Utilities",
-
-        # Infra
         "infrastructure": "Infrastructure",
         "construction": "Infrastructure",
         "engineering": "Infrastructure",
         "capital goods": "Infrastructure",
-
-        # Telecom
         "telecom": "Telecom",
         "communication": "Telecom",
-
-        # Real Estate
         "real estate": "Real Estate",
         "realty": "Real Estate",
-        "housing": "Real Estate",
-
-        # Textile
         "textile": "Textiles",
         "garment": "Textiles",
         "apparel": "Textiles",
-
-        # Chemical
         "chemical": "Chemicals",
         "fertilizer": "Chemicals",
         "agrochemical": "Chemicals",
         "pesticide": "Chemicals",
-
-        # Media
         "media": "Media & Entertainment",
         "entertainment": "Media & Entertainment",
         "broadcast": "Media & Entertainment",
-
-        # Defence
         "defence": "Defence",
         "defense": "Defence",
         "aerospace": "Defence",
-
-        # Aviation
         "airline": "Aviation",
         "aviation": "Aviation",
-
-        # Retail
         "retail": "Retail",
-
-        # Hotel
         "hotel": "Hotels & Tourism",
         "tourism": "Hotels & Tourism",
         "hospitality": "Hotels & Tourism",
-
-        # Logistics
         "logistics": "Logistics",
         "shipping": "Logistics",
         "transport": "Logistics",
-
-        # Paper
         "paper": "Paper",
         "packaging": "Packaging",
+        "diversified": "Diversified",
     }
 
     for keyword, sector in SECTOR_MAP.items():
