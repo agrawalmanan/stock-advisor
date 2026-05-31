@@ -1,15 +1,15 @@
 from services.stock_mapper import get_stock_meta, NSE_STOCKS
-from services.nse_client import get_fast_quote, get_fast_chart
+from services.nse_client import get_fast_quote, get_fast_chart, get_fast_fundamentals
 from utils.cache import get_cache, set_cache
 from utils.helpers import format_market_cap, format_volume, safe_round, safe_get
 from utils.yf_client import get_ticker, with_retries
 from utils.rate_limiter import rate_limit
 
-
 def get_stock_data(symbol: str) -> dict:
     """
     Fetch full live stock data
-    Uses fast Yahoo chart API for price + yfinance for fundamentals
+    Uses fast Yahoo chart API for price + fast fundamentals API
+    Falls back to yfinance library only if needed
     """
     cache_key = f"stock_data_{symbol}"
     cached = get_cache(cache_key)
@@ -18,13 +18,18 @@ def get_stock_data(symbol: str) -> dict:
 
     meta = get_stock_meta(symbol)
 
-    # Step 1: Get live price from fast API (no rate limit issues)
+    # Step 1: Get live price from fast chart API
     fast = get_fast_quote(symbol)
 
-    # Step 2: Get fundamentals from yfinance (cached heavily)
-    yf_info = _get_yf_fundamentals(symbol)
+    # Step 2: Get fundamentals from fast API (not yfinance library)
+    fundamentals = get_fast_fundamentals(symbol)
 
-    if not fast and not yf_info:
+    # Step 3: Only use yfinance library as last resort
+    yf_info = {}
+    if not fundamentals or not fundamentals.get("market_cap"):
+        yf_info = _get_yf_fundamentals(symbol)
+
+    if not fast and not yf_info and not fundamentals:
         return {"error": f"Failed to fetch data for {symbol}"}
 
     current_price = fast.get("current_price") or safe_round(
@@ -41,15 +46,36 @@ def get_stock_data(symbol: str) -> dict:
     change = fast.get("change", "N/A")
     change_pct = fast.get("change_pct", "N/A")
 
-    sector = yf_info.get("sector") or meta.get("sector", "Unknown")
+    # Sector priority: fundamentals > yfinance > meta
+    sector = (
+        fundamentals.get("sector") or
+        yf_info.get("sector") or
+        meta.get("sector", "Unknown")
+    )
+
     peers = meta.get("peers", [])
     if not peers:
         peers = _get_peers_from_sector(sector, exclude_symbol=symbol)
 
-    market_cap_raw = yf_info.get("marketCap")
+    # Market cap priority: fundamentals > yfinance
+    market_cap_raw = fundamentals.get("market_cap") or yf_info.get("marketCap")
+
+    # Dividend yield — handle None and NaN
+    div_yield = fundamentals.get("dividend_yield")
+    if div_yield is None:
+        div_yield = yf_info.get("dividendYield")
+    if div_yield is None:
+        div_yield = "N/A"
+    else:
+        div_yield = safe_round(div_yield, 4)
 
     result = {
-        "name": fast.get("name") or yf_info.get("longName") or meta.get("name", symbol),
+        "name": (
+            fast.get("name") or
+            fundamentals.get("name") or
+            yf_info.get("longName") or
+            meta.get("name", symbol)
+        ),
         "symbol": symbol,
         "sector": sector,
         "peers": peers,
@@ -66,25 +92,24 @@ def get_stock_data(symbol: str) -> dict:
 
         "volume": fast.get("volume") or yf_info.get("regularMarketVolume"),
         "volume_formatted": fast.get("volume_formatted") or format_volume(yf_info.get("regularMarketVolume")),
-        "avg_volume": yf_info.get("averageVolume", "N/A"),
+        "avg_volume": fundamentals.get("avg_volume") or yf_info.get("averageVolume", "N/A"),
 
         "market_cap_raw": market_cap_raw,
         "market_cap": format_market_cap(market_cap_raw),
 
-        "pe_ratio": safe_round(yf_info.get("trailingPE")),
-        "pb_ratio": safe_round(yf_info.get("priceToBook")),
-        "dividend_yield": safe_round(yf_info.get("dividendYield"), 4),
-        "beta": safe_round(yf_info.get("beta")),
-        "eps": safe_round(yf_info.get("trailingEps")),
+        "pe_ratio": fundamentals.get("pe_ratio") or safe_round(yf_info.get("trailingPE")),
+        "pb_ratio": fundamentals.get("pb_ratio") or safe_round(yf_info.get("priceToBook")),
+        "dividend_yield": div_yield,
+        "beta": fundamentals.get("beta") or safe_round(yf_info.get("beta")),
+        "eps": fundamentals.get("eps") or safe_round(yf_info.get("trailingEps")),
 
         "exchange": "NSE",
         "currency": "INR",
-        "data_source": fast.get("source", "yfinance"),
+        "data_source": fundamentals.get("source", fast.get("source", "yfinance")),
     }
 
     set_cache(cache_key, result, ttl_seconds=300)
     return result
-
 
 def _get_yf_fundamentals(symbol: str) -> dict:
     """

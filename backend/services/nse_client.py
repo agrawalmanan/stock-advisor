@@ -225,3 +225,124 @@ def get_fast_history(symbol: str, period: str = "1y") -> list:
     except Exception as e:
         print(f"[FAST HISTORY] Error for {symbol}: {e}")
         return []
+    
+def get_fast_fundamentals(symbol: str) -> dict:
+    """
+    Fetch fundamentals using Yahoo Finance quoteSummary endpoint
+    Falls back to chart API meta data
+    """
+    cache_key = f"fast_fundamentals_{symbol}"
+    cached = get_cache(cache_key)
+    if cached:
+        return cached
+
+    if not symbol.endswith(".NS"):
+        symbol = symbol + ".NS"
+
+    result = {}
+
+    # Method 1: Try v6 finance quote (most reliable)
+    try:
+        url = f"https://query1.finance.yahoo.com/v6/finance/quote"
+        params = {
+            "symbols": symbol,
+            "fields": "regularMarketPrice,marketCap,trailingPE,priceToBook,epsTrailingTwelveMonths,dividendYield,beta,averageVolume,longName,sector,industry"
+        }
+
+        response = requests.get(
+            url,
+            headers=YAHOO_HEADERS,
+            params=params,
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            quotes = data.get("quoteResponse", {}).get("result", [])
+            if quotes:
+                q = quotes[0]
+                result = {
+                    "market_cap": q.get("marketCap"),
+                    "pe_ratio": safe_round(q.get("trailingPE")),
+                    "pb_ratio": safe_round(q.get("priceToBook")),
+                    "eps": safe_round(q.get("epsTrailingTwelveMonths")),
+                    "dividend_yield": safe_round(q.get("dividendYield"), 4),
+                    "beta": safe_round(q.get("beta")),
+                    "avg_volume": q.get("averageVolume"),
+                    "name": q.get("longName") or q.get("shortName"),
+                    "sector": q.get("sector"),
+                    "industry": q.get("industry"),
+                    "source": "yahoo_v6"
+                }
+                set_cache(cache_key, result, ttl_seconds=3600)
+                print(f"[FAST FUNDAMENTALS] Got from v6 for {symbol}")
+                return result
+
+    except Exception as e:
+        print(f"[FAST FUNDAMENTALS] v6 error for {symbol}: {e}")
+
+    # Method 2: Try v7 finance quote
+    try:
+        url = f"https://query1.finance.yahoo.com/v7/finance/quote"
+        params = {"symbols": symbol}
+
+        response = requests.get(
+            url,
+            headers=YAHOO_HEADERS,
+            params=params,
+            timeout=10
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            quotes = data.get("quoteResponse", {}).get("result", [])
+            if quotes:
+                q = quotes[0]
+                result = {
+                    "market_cap": q.get("marketCap"),
+                    "pe_ratio": safe_round(q.get("trailingPE")),
+                    "pb_ratio": safe_round(q.get("priceToBook")),
+                    "eps": safe_round(q.get("epsTrailingTwelveMonths")),
+                    "dividend_yield": safe_round(q.get("dividendYield"), 4) if q.get("dividendYield") else None,
+                    "beta": safe_round(q.get("beta")),
+                    "avg_volume": q.get("averageDailyVolume3Month"),
+                    "name": q.get("longName") or q.get("shortName"),
+                    "sector": None,
+                    "industry": None,
+                    "source": "yahoo_v7"
+                }
+                set_cache(cache_key, result, ttl_seconds=3600)
+                print(f"[FAST FUNDAMENTALS] Got from v7 for {symbol}")
+                return result
+
+    except Exception as e:
+        print(f"[FAST FUNDAMENTALS] v7 error for {symbol}: {e}")
+
+    # Method 3: Try scraping from chart API meta (least data but always works)
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+        response = requests.get(url, headers=YAHOO_HEADERS, timeout=10)
+
+        if response.status_code == 200:
+            data = response.json()
+            meta = data.get("chart", {}).get("result", [{}])[0].get("meta", {})
+            result = {
+                "market_cap": None,
+                "pe_ratio": None,
+                "pb_ratio": None,
+                "eps": None,
+                "dividend_yield": None,
+                "beta": None,
+                "avg_volume": None,
+                "name": meta.get("longName") or meta.get("shortName"),
+                "sector": None,
+                "industry": None,
+                "source": "yahoo_chart_meta"
+            }
+            set_cache(cache_key, result, ttl_seconds=3600)
+            return result
+
+    except Exception:
+        pass
+
+    return result
