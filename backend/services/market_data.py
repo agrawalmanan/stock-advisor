@@ -36,6 +36,7 @@ def get_stock_data(symbol: str) -> dict:
 
     # Sector
     sector = (
+        screener.get("sector") or
         yf_info.get("sector") or
         meta.get("sector", "Unknown")
     )
