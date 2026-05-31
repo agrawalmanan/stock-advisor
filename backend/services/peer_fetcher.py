@@ -16,21 +16,95 @@ session.headers.update({
 })
 
 # Expanded sector → peers mapping (6 peers each)
+# Updated sector → peers mapping matching new Screener sectors
 SECTOR_PEERS = {
-    "Energy": ["RELIANCE.NS", "ONGC.NS", "IOC.NS", "BPCL.NS", "GAIL.NS", "HINDPETRO.NS", "PETRONET.NS"],
-    "Technology": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "MPHASIS.NS"],
-    "Financial Services": ["HDFCBANK.NS", "ICICIBANK.NS", "KOTAKBANK.NS", "AXISBANK.NS", "SBIN.NS", "BAJFINANCE.NS", "BAJAJFINSV.NS"],
-    "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "INDUSINDBK.NS", "BANKBARODA.NS"],
-    "Healthcare": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS", "FORTIS.NS", "BIOCON.NS"],
-    "Consumer Defensive": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS", "MARICO.NS", "COLPAL.NS"],
-    "Consumer Cyclical": ["MARUTI.NS", "TATAMOTORS.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS", "TVSMOTOR.NS"],
-    "Industrials": ["LT.NS", "SIEMENS.NS", "ABB.NS", "BHEL.NS", "HAL.NS", "BEL.NS", "CUMMINSIND.NS"],
-    "Basic Materials": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS", "SAIL.NS", "NMDC.NS", "COALINDIA.NS"],
-    "Utilities": ["NTPC.NS", "POWERGRID.NS", "TATAPOWER.NS", "ADANIGREEN.NS", "NHPC.NS", "SJVN.NS", "IREDA.NS"],
-    "Real Estate": ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PRESTIGE.NS", "PHOENIXLTD.NS", "BRIGADE.NS", "LODHA.NS"],
-    "Communication Services": ["BHARTIARTL.NS", "IDEA.NS", "TATACOMM.NS", "INDUSTOWER.NS", "ROUTE.NS", "NAZARA.NS", "LATENTVIEW.NS"],
-}
+    # IT
+    "IT Services": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "MPHASIS.NS", "COFORGE.NS"],
+    "Information Technology": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "MPHASIS.NS"],
+    "Technology": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS"],
 
+    # Banking
+    "Banking": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "INDUSINDBK.NS", "BANKBARODA.NS", "PNB.NS"],
+
+    # Financial Services
+    "Financial Services": ["BAJFINANCE.NS", "BAJAJFINSV.NS", "CHOLAFIN.NS", "MUTHOOTFIN.NS", "SHRIRAMFIN.NS", "M&MFIN.NS", "LICHSGFIN.NS"],
+
+    # Oil & Gas
+    "Oil & Gas": ["RELIANCE.NS", "ONGC.NS", "IOC.NS", "BPCL.NS", "GAIL.NS", "HINDPETRO.NS", "PETRONET.NS"],
+
+    # Pharma
+    "Pharmaceuticals": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "BIOCON.NS", "AUROPHARMA.NS", "LUPIN.NS", "TORNTPHARM.NS"],
+
+    # Healthcare
+    "Healthcare": ["APOLLOHOSP.NS", "FORTIS.NS", "MAXHEALTH.NS", "METROPOLIS.NS", "LALPATHLAB.NS", "STARHEALTH.NS"],
+
+    # Auto
+    "Automobile": ["MARUTI.NS", "TATAMOTORS.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS", "TVSMOTOR.NS", "ASHOKLEY.NS"],
+
+    # FMCG
+    "FMCG": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS", "MARICO.NS", "COLPAL.NS", "GODREJCP.NS"],
+
+    # Steel
+    "Steel": ["TATASTEEL.NS", "JSWSTEEL.NS", "SAIL.NS", "JINDALSTEL.NS", "APLAPOLLO.NS", "RATNAMANI.NS"],
+
+    # Metals & Mining
+    "Metals & Mining": ["HINDALCO.NS", "VEDL.NS", "NMDC.NS", "COALINDIA.NS", "NATIONALUM.NS", "MOIL.NS", "HINDCOPPER.NS"],
+
+    # Cement
+    "Cement": ["ULTRACEMCO.NS", "AMBUJACEM.NS", "ACC.NS", "SHREECEM.NS", "RAMCOCEM.NS", "DALMIACEM.NS", "JKCEMENT.NS"],
+
+    # Paints
+    "Paints": ["ASIANPAINT.NS", "BERGEPAINT.NS", "KANSAINER.NS", "AKZONOBEL.NS", "INDIGO.NS", "CENTURYTEX.NS"],
+
+    # Power
+    "Power & Utilities": ["NTPC.NS", "POWERGRID.NS", "TATAPOWER.NS", "ADANIGREEN.NS", "NHPC.NS", "SJVN.NS", "IREDA.NS"],
+    "Energy": ["RELIANCE.NS", "ONGC.NS", "IOC.NS", "BPCL.NS", "GAIL.NS", "NTPC.NS", "POWERGRID.NS"],
+
+    # Infrastructure
+    "Infrastructure": ["LT.NS", "SIEMENS.NS", "ABB.NS", "BHEL.NS", "HAL.NS", "BEL.NS", "CUMMINSIND.NS"],
+
+    # Telecom
+    "Telecom": ["BHARTIARTL.NS", "IDEA.NS", "TATACOMM.NS", "INDUSTOWER.NS"],
+
+    # Real Estate
+    "Real Estate": ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PRESTIGE.NS", "PHOENIXLTD.NS", "BRIGADE.NS"],
+
+    # Chemicals
+    "Chemicals": ["PIDILITIND.NS", "UPL.NS", "ATUL.NS", "DEEPAKFERT.NS", "GNFC.NS", "NAVINFLUOR.NS", "CLEAN.NS"],
+
+    # Textiles
+    "Textiles": ["PAGEIND.NS", "RAYMOND.NS", "ARVIND.NS", "TRIDENT.NS", "WELSPUNLIV.NS"],
+
+    # Media
+    "Media & Entertainment": ["ZEEL.NS", "SUNTV.NS", "PVR.NS", "NETWORK18.NS", "TV18BRDCST.NS"],
+
+    # Defence
+    "Defence": ["HAL.NS", "BEL.NS", "BDL.NS", "MAZAGON.NS", "GRSE.NS", "COCHINSHIP.NS"],
+
+    # Aviation
+    "Aviation": ["INDIGO.NS", "SPICEJET.NS"],
+
+    # Hotels
+    "Hotels & Tourism": ["INDHOTEL.NS", "LEMON.NS", "CHALET.NS", "EIH.NS"],
+
+    # Logistics
+    "Logistics": ["DELHIVERY.NS", "BLUEDART.NS", "CONCOR.NS", "ALLCARGO.NS", "TCI.NS"],
+
+    # Retail
+    "Retail": ["TRENT.NS", "DMART.NS", "SHOPERSTOP.NS", "VMART.NS"],
+
+    # Electronics
+    "Electronics": ["DIXON.NS", "VOLTAS.NS", "HAVELLS.NS", "CROMPTON.NS", "BLUESTARCO.NS"],
+
+    # Jewellery
+    "Jewellery": ["TITAN.NS", "KALYANKJIL.NS", "SENCO.NS", "PCJEWELLER.NS"],
+
+    # Diversified
+    "Diversified": ["RELIANCE.NS", "LT.NS", "ITC.NS", "ADANIENT.NS", "BAJAJHLDNG.NS", "TATAELXSI.NS"],
+
+    # Paper
+    "Paper & Packaging": ["BALLARPUR.NS", "TNPL.NS", "JKPAPER.NS", "STARPAPER.NS"],
+}
 
 def get_peers_by_sector(sector: str, exclude_symbol: str, limit: int = 6) -> list:
     """Find peer symbols from same sector"""
