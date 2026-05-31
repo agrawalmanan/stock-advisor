@@ -1,3 +1,27 @@
+import time
+
+
+def retry_on_rate_limit(func, max_retries=3, initial_delay=2):
+    """
+    Retry a function if it hits rate limits
+    Exponential backoff: 2s, 4s, 8s
+    """
+    for attempt in range(max_retries):
+        try:
+            result = func()
+            return result
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "rate" in error_msg or "too many" in error_msg or "429" in error_msg:
+                delay = initial_delay * (2 ** attempt)
+                print(f"[RATE LIMIT] Attempt {attempt + 1}/{max_retries}, waiting {delay}s...")
+                time.sleep(delay)
+            else:
+                raise e
+
+    # Last attempt without catching
+    return func()
+
 def format_market_cap(value: float) -> str:
     """Convert raw market cap number to readable Indian format"""
     if value is None:

@@ -6,6 +6,7 @@ import pandas as pd
 import yfinance as yf
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round
+from utils.rate_limiter import rate_limit
 
 
 def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
@@ -21,8 +22,10 @@ def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
         # Check if cached value is actually a DataFrame
         if isinstance(cached, pd.DataFrame) and not cached.empty:
             return cached
-
+        
     try:
+        rate_limit()  # Ensure we respect API rate limits
+        
         ticker = yf.Ticker(symbol)
         df = ticker.history(period=period, interval="1d")
 
@@ -46,7 +49,7 @@ def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
             return pd.DataFrame()
 
         print(f"Fetched {len(df)} rows for {symbol} period={period}")
-        set_cache(cache_key, df, ttl_seconds=300)
+        set_cache(cache_key, df, ttl_seconds=900)
         return df
 
     except Exception as e:
@@ -431,5 +434,5 @@ def get_full_analysis(symbol: str, period: str = "3mo") -> dict:
         "trend": trend
     }
 
-    set_cache(cache_key, result, ttl_seconds=300)
+    set_cache(cache_key, result, ttl_seconds=900)
     return result

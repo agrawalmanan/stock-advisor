@@ -64,16 +64,33 @@ const StockPage = () => {
 
       // Stock data
       setLoadingStock(true);
+      const fetchWithRetry = async (retries = 3) => {
+          for (let i = 0; i < retries; i++) {
+              try {
+                  const data = await getStockData(symbol);
+                  return data;
+              } catch (err) {
+                  const msg = err.response?.data?.detail || err.message || '';
+                  if (msg.includes('Rate') || msg.includes('Too Many') || msg.includes('429')) {
+                      console.log(`Rate limited, retrying in ${(i + 1) * 3}s...`);
+                      await new Promise(r => setTimeout(r, (i + 1) * 3000));
+                  } else {
+                      throw err;
+                  }
+              }
+          }
+          throw new Error('Rate limited. Please wait a moment and try again.');
+      };
+
       try {
-        const data = await getStockData(symbol);
-        setStockData(data);
-        saveRecentSearch(data);
+          const data = await fetchWithRetry();
+          setStockData(data);
       } catch (err) {
-        setError(err.response?.data?.detail || 'Failed to fetch stock data');
-        setLoadingStock(false);
-        return;
+          setError(err.response?.data?.detail || err.message || 'Failed to fetch stock data');
+          setLoadingStock(false);
+          return;
       }
-      setLoadingStock(false);
+      setLoadingStock(false); 
 
       // Analysis
       setLoadingAnalysis(true);

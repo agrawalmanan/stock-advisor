@@ -2,21 +2,24 @@ import yfinance as yf
 from utils.helpers import format_market_cap, format_volume, safe_round, safe_get
 from utils.cache import get_cache, set_cache
 from services.stock_mapper import get_stock_meta
-
+from utils.rate_limiter import rate_limit
+from utils.helpers import retry_on_rate_limit
 
 def get_stock_data(symbol: str) -> dict:
-    """
-    Fetch full live stock data for a given NSE symbol
-    symbol should be like: RELIANCE.NS
-    """
+    """Fetch full live stock data"""
     cache_key = f"stock_data_{symbol}"
     cached = get_cache(cache_key)
     if cached:
         return cached
 
     try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
+        rate_limit()  # Add this line
+
+        def fetch():
+            ticker = yf.Ticker(symbol)
+            return ticker.info
+
+        info = retry_on_rate_limit(fetch)  # Wrap with retry
 
         if not info or "regularMarketPrice" not in info:
             return {"error": f"Stock '{symbol}' not found or market closed"}
@@ -84,7 +87,7 @@ def get_stock_data(symbol: str) -> dict:
         }
 
         # cache for 5 minutes
-        set_cache(cache_key, result, ttl_seconds=300)
+        set_cache(cache_key, result, ttl_seconds=600)
         return result
 
     except Exception as e:
@@ -99,6 +102,8 @@ def get_historical_returns(symbol: str) -> dict:
     cached = get_cache(cache_key)
     if cached:
         return cached
+    
+    rate_limit()  # Add this line
 
     periods = {
         "1M": "1mo",
@@ -124,7 +129,7 @@ def get_historical_returns(symbol: str) -> dict:
         except Exception:
             returns[label] = "N/A"
 
-    set_cache(cache_key, returns, ttl_seconds=3600)  # cache 1 hour
+    set_cache(cache_key, returns, ttl_seconds=7200)  # cache 1 hour
     return returns
 
 
@@ -138,6 +143,9 @@ def get_chart_data(symbol: str, period: str = "3mo") -> list:
     cached = get_cache(cache_key)
     if cached:
         return cached
+    
+    try:
+        rate_limit()  # Add this line
 
     try:
         ticker = yf.Ticker(symbol)
@@ -159,7 +167,7 @@ def get_chart_data(symbol: str, period: str = "3mo") -> list:
                 "volume": int(row["Volume"]) if row["Volume"] else 0
             })
 
-        set_cache(cache_key, candles, ttl_seconds=300)
+        set_cache(cache_key, candles, ttl_seconds=600)
         return candles
 
     except Exception as e:
