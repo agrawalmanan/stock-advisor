@@ -3,17 +3,14 @@ from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 import pandas as pd
-from utils.yf_client import get_ticker, with_retries
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round
-from utils.rate_limiter import rate_limit
 
 
 def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
     """
-    Fetch historical OHLCV data as a pandas DataFrame
-    Used as base for all technical calculations
-    Supported periods: 1mo, 3mo, 6mo, 1y, 2y, 5y
+    Fetch historical OHLCV data as DataFrame
+    Uses fast Yahoo chart API instead of yfinance library
     """
     cache_key = f"hist_df_{symbol}_{period}"
     cached = get_cache(cache_key)
@@ -22,27 +19,30 @@ def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
             return cached
 
     try:
-        rate_limit()
+        from services.nse_client import get_fast_history
+        history = get_fast_history(symbol, period)
 
-        ticker = get_ticker(symbol)
-        df = with_retries(lambda: ticker.history(period=period, interval="1d"))
-
-        if df is None or df.empty:
-            print(f"No data returned from yfinance for {symbol} period={period}")
+        if not history:
+            print(f"No data from fast API for {symbol} period={period}")
             return pd.DataFrame()
 
-        required_cols = ["Open", "High", "Low", "Close", "Volume"]
-        available_cols = [c for c in required_cols if c in df.columns]
+        df = pd.DataFrame(history)
+        df["Date"] = pd.to_datetime(df["timestamp"], unit="s")
+        df.set_index("Date", inplace=True)
 
-        if not available_cols:
-            print(f"Required columns missing for {symbol}")
-            return pd.DataFrame()
+        # Rename to match expected column names
+        df.rename(columns={
+            "open": "Open",
+            "high": "High",
+            "low": "Low",
+            "close": "Close",
+            "volume": "Volume"
+        }, inplace=True)
 
-        df = df[available_cols].copy()
+        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
         df.dropna(inplace=True)
 
         if df.empty:
-            print(f"DataFrame empty after cleanup for {symbol}")
             return pd.DataFrame()
 
         print(f"Fetched {len(df)} rows for {symbol} period={period}")
@@ -50,11 +50,10 @@ def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
         return df
 
     except Exception as e:
-        print(f"Error fetching historical data for {symbol} period={period}: {e}")
+        print(f"Error fetching data for {symbol}: {e}")
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
-
 
 def calculate_moving_averages(df: pd.DataFrame) -> dict:
     """Calculate SMA and EMA for multiple periods"""
