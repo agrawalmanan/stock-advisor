@@ -35,7 +35,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "https://your-app-name.vercel.app",  # will update after deploy
+        "https://stock-advisor-lilac.vercel.app",  # will update after deploy
     ],
     allow_credentials=True,
     allow_methods=["*"],
