@@ -3,50 +3,42 @@ from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 import pandas as pd
-import yfinance as yf
+from utils.yf_client import get_ticker, with_retries
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round
 from utils.rate_limiter import rate_limit
-import requests as req_session
 
-_session = req_session.Session()
-_session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-})
 
 def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
     """
     Fetch historical OHLCV data as a pandas DataFrame
     Used as base for all technical calculations
-    
     Supported periods: 1mo, 3mo, 6mo, 1y, 2y, 5y
     """
     cache_key = f"hist_df_{symbol}_{period}"
     cached = get_cache(cache_key)
     if cached is not None:
-        # Check if cached value is actually a DataFrame
         if isinstance(cached, pd.DataFrame) and not cached.empty:
             return cached
-        
+
     try:
-        rate_limit()  # Ensure we respect API rate limits
-        
-        ticker = yf.Ticker(symbol, session=_session)
-        df = ticker.history(period=period, interval="1d")
+        rate_limit()
+
+        ticker = get_ticker(symbol)
+        df = with_retries(lambda: ticker.history(period=period, interval="1d"))
 
         if df is None or df.empty:
             print(f"No data returned from yfinance for {symbol} period={period}")
             return pd.DataFrame()
 
-        # Clean up — keep only required columns
         required_cols = ["Open", "High", "Low", "Close", "Volume"]
         available_cols = [c for c in required_cols if c in df.columns]
-        
+
         if not available_cols:
             print(f"Required columns missing for {symbol}")
             return pd.DataFrame()
-            
-        df = df[available_cols]
+
+        df = df[available_cols].copy()
         df.dropna(inplace=True)
 
         if df.empty:
@@ -58,10 +50,11 @@ def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
         return df
 
     except Exception as e:
-        print(f"Error fetching historical data for {symbol}: {e}")
+        print(f"Error fetching historical data for {symbol} period={period}: {e}")
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
+
 
 def calculate_moving_averages(df: pd.DataFrame) -> dict:
     """Calculate SMA and EMA for multiple periods"""
@@ -250,7 +243,8 @@ def calculate_bollinger_bands(df: pd.DataFrame) -> dict:
     except Exception as e:
         print(f"Bollinger Bands error: {e}")
         return {"upper": "N/A", "middle": "N/A", "lower": "N/A", "signal": "N/A"}
-    
+
+
 def calculate_support_resistance(df: pd.DataFrame) -> dict:
     """
     Calculate Support and Resistance levels
@@ -312,9 +306,7 @@ def calculate_overall_trend(
     rsi: dict,
     macd: dict
 ) -> dict:
-    """
-    Determine overall trend from all indicators combined
-    """
+    """Determine overall trend from all indicators combined"""
     bullish_count = 0
     bearish_count = 0
     total = 0
@@ -365,10 +357,9 @@ def calculate_overall_trend(
         "color": color
     }
 
+
 def slice_df_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
-    """
-    Slice dataframe to selected display period
-    """
+    """Slice dataframe to selected display period"""
     if df.empty:
         return df
 
@@ -377,53 +368,41 @@ def slice_df_by_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
     if period == "3mo":
         cutoff = last_date - pd.DateOffset(days=90)
         return df[df.index >= cutoff]
-
     if period == "6mo":
         cutoff = last_date - pd.DateOffset(days=180)
         return df[df.index >= cutoff]
-
     if period == "1y":
         cutoff = last_date - pd.DateOffset(days=365)
         return df[df.index >= cutoff]
 
     return df
 
+
 def get_full_analysis(symbol: str, period: str = "3mo") -> dict:
     """
     Master function — runs all technical analysis
-
-    Important:
-    - Indicators like SMA/EMA/RSI/MACD/Bollinger are calculated using 1 year data
-      for better accuracy.
-    - Support/Resistance uses selected display period (3mo or 6mo).
+    Indicators calculated on 1Y data for accuracy
+    Support/Resistance uses selected display period
     """
     cache_key = f"analysis_v2_{symbol}_{period}"
     cached = get_cache(cache_key)
     if cached:
         return cached
 
-    # Use 1 year data as base for technical indicators
     df_base = get_historical_df(symbol, period="1y")
 
     if df_base.empty:
         return {"error": f"No historical data found for {symbol}"}
 
-    # Display-specific slice for support/resistance and period context
     df_display = slice_df_by_period(df_base, period)
-
     if df_display.empty:
         df_display = df_base
 
-    # Indicators from full 1Y base data
     moving_averages = calculate_moving_averages(df_base)
     rsi = calculate_rsi(df_base)
     macd = calculate_macd(df_base)
     bollinger = calculate_bollinger_bands(df_base)
-
-    # Support/Resistance from selected display window
     support_resistance = calculate_support_resistance(df_display)
-
-    # Trend from full indicator set
     trend = calculate_overall_trend(moving_averages, rsi, macd)
 
     result = {

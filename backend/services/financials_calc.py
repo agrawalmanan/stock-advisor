@@ -1,6 +1,8 @@
+
 import yfinance as yf
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round
+from utils.yf_client import get_ticker, with_retries
 import requests
 
 # Patch yfinance session with browser headers
@@ -24,8 +26,8 @@ def get_financial_metrics(symbol: str) -> dict:
         return cached
 
     try:
-        ticker = yf.Ticker(symbol, session=session)
-        info = ticker.info
+        ticker = get_ticker(symbol)
+        info = with_retries(lambda: ticker.info)
 
         # Basic metrics from info
         pe_ratio = safe_round(info.get("trailingPE"))

@@ -1,9 +1,11 @@
+
 import yfinance as yf
 import os
 import json
 from groq import Groq
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round
+from utils.yf_client import get_ticker, with_retries
 
 
 def get_company_info(symbol: str) -> dict:
@@ -17,8 +19,8 @@ def get_company_info(symbol: str) -> dict:
         return cached
 
     try:
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
+        ticker = get_ticker(symbol)
+        info = with_retries(lambda: ticker.info)
 
         # Basic info from yfinance
         company_name = info.get("longName") or info.get("shortName") or symbol

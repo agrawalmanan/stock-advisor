@@ -1,6 +1,7 @@
 import yfinance as yf
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round, format_market_cap
+from utils.yf_client import get_ticker, with_retries
 from services.financials_calc import get_financial_metrics
 import requests
 
@@ -65,8 +66,8 @@ def get_peer_data(peer_symbols: list, exclude_symbol: str = "", sector: str = ""
             if symbol == exclude_symbol:
                 continue
 
-            ticker = yf.Ticker(symbol, session=session)
-            info = ticker.info
+            ticker = get_ticker(symbol)
+            info = with_retries(lambda: ticker.info)
 
             if not info:
                 continue

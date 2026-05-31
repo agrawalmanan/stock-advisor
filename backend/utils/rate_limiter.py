@@ -3,7 +3,7 @@ import threading
 
 _lock = threading.Lock()
 _last_call_time = 0
-MIN_INTERVAL = 2.0  # increase to 2 seconds between calls
+MIN_INTERVAL = 2.5  # 2.5 seconds between Yahoo calls
 
 
 def rate_limit():
@@ -14,7 +14,6 @@ def rate_limit():
         elapsed = now - _last_call_time
 
         if elapsed < MIN_INTERVAL:
-            sleep_time = MIN_INTERVAL - elapsed
-            time.sleep(sleep_time)
+            time.sleep(MIN_INTERVAL - elapsed)
 
         _last_call_time = time.time()
