@@ -4,6 +4,17 @@ from utils.cache import get_cache, set_cache
 from services.stock_mapper import get_stock_meta
 from utils.rate_limiter import rate_limit
 from utils.helpers import retry_on_rate_limit
+import requests
+
+# Patch yfinance session with browser headers
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+})
 
 def get_stock_data(symbol: str) -> dict:
     """Fetch full live stock data"""
@@ -16,7 +27,7 @@ def get_stock_data(symbol: str) -> dict:
         rate_limit()  # Add this line
 
         def fetch():
-            ticker = yf.Ticker(symbol)
+            ticker = yf.Ticker(symbol, session=session)
             return ticker.info
 
         info = retry_on_rate_limit(fetch)  # Wrap with retry

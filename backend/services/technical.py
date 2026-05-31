@@ -7,7 +7,12 @@ import yfinance as yf
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round
 from utils.rate_limiter import rate_limit
+import requests as req_session
 
+_session = req_session.Session()
+_session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+})
 
 def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
     """
@@ -26,7 +31,7 @@ def get_historical_df(symbol: str, period: str = "1y") -> pd.DataFrame:
     try:
         rate_limit()  # Ensure we respect API rate limits
         
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=_session)
         df = ticker.history(period=period, interval="1d")
 
         if df is None or df.empty:

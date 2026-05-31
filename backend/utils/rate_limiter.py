@@ -3,14 +3,10 @@ import threading
 
 _lock = threading.Lock()
 _last_call_time = 0
-MIN_INTERVAL = 1.0  # minimum 1 second between yfinance calls
+MIN_INTERVAL = 2.0  # increase to 2 seconds between calls
 
 
 def rate_limit():
-    """
-    Ensures minimum interval between yfinance API calls
-    Prevents rate limiting from Yahoo Finance
-    """
     global _last_call_time
 
     with _lock:

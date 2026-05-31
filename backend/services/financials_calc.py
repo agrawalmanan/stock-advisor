@@ -1,7 +1,17 @@
 import yfinance as yf
 from utils.cache import get_cache, set_cache
 from utils.helpers import safe_round
+import requests
 
+# Patch yfinance session with browser headers
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+})
 
 def get_financial_metrics(symbol: str) -> dict:
     """
@@ -14,7 +24,7 @@ def get_financial_metrics(symbol: str) -> dict:
         return cached
 
     try:
-        ticker = yf.Ticker(symbol)
+        ticker = yf.Ticker(symbol, session=session)
         info = ticker.info
 
         # Basic metrics from info
