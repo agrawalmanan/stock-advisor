@@ -108,7 +108,28 @@ SECTOR_PEERS = {
 
 def get_peers_by_sector(sector: str, exclude_symbol: str, limit: int = 6) -> list:
     """Find peer symbols from same sector"""
+    # Direct match first
     peers = SECTOR_PEERS.get(sector, [])
+
+    # If no direct match, try related sectors
+    if not peers:
+        RELATED_SECTORS = {
+            "Steel": "Metals & Mining",
+            "Metals & Mining": "Steel",
+            "Oil & Gas": "Energy",
+            "Energy": "Oil & Gas",
+            "IT Services": "Information Technology",
+            "Information Technology": "IT Services",
+            "Power & Utilities": "Energy",
+            "Pharmaceuticals": "Healthcare",
+            "Healthcare": "Pharmaceuticals",
+            "Paper & Packaging": "FMCG",
+        }
+        related = RELATED_SECTORS.get(sector)
+        if related:
+            peers = SECTOR_PEERS.get(related, [])
+
+    # Remove the stock itself
     peers = [p for p in peers if p != exclude_symbol]
     return peers[:limit]
 
