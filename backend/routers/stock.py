@@ -73,3 +73,90 @@ def get_chart(
         "count": len(candles),
         "candles": candles
     }
+
+@router.get("/debug/fundamentals/{symbol}")
+def debug_fundamentals(symbol: str):
+    """Debug endpoint to check which Yahoo API works"""
+    import requests
+
+    symbol = symbol.upper()
+    if not symbol.endswith(".NS"):
+        symbol = symbol + ".NS"
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    }
+
+    results = {}
+
+    # Test v8 chart API
+    try:
+        r = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+            headers=headers, timeout=10
+        )
+        results["v8_chart"] = {"status": r.status_code, "works": r.status_code == 200}
+    except Exception as e:
+        results["v8_chart"] = {"status": "error", "error": str(e)}
+
+    # Test v6 quote API
+    try:
+        r = requests.get(
+            f"https://query1.finance.yahoo.com/v6/finance/quote?symbols={symbol}",
+            headers=headers, timeout=10
+        )
+        results["v6_quote"] = {"status": r.status_code, "works": r.status_code == 200}
+        if r.status_code == 200:
+            data = r.json()
+            quotes = data.get("quoteResponse", {}).get("result", [])
+            if quotes:
+                q = quotes[0]
+                results["v6_data"] = {
+                    "marketCap": q.get("marketCap"),
+                    "trailingPE": q.get("trailingPE"),
+                    "beta": q.get("beta"),
+                }
+    except Exception as e:
+        results["v6_quote"] = {"status": "error", "error": str(e)}
+
+    # Test v7 quote API
+    try:
+        r = requests.get(
+            f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}",
+            headers=headers, timeout=10
+        )
+        results["v7_quote"] = {"status": r.status_code, "works": r.status_code == 200}
+    except Exception as e:
+        results["v7_quote"] = {"status": "error", "error": str(e)}
+
+    # Test v11 quote API
+    try:
+        r = requests.get(
+            f"https://query1.finance.yahoo.com/v11/finance/quoteSummary/{symbol}?modules=defaultKeyStatistics,financialData",
+            headers=headers, timeout=10
+        )
+        results["v11_quoteSummary"] = {"status": r.status_code, "works": r.status_code == 200}
+    except Exception as e:
+        results["v11_quoteSummary"] = {"status": "error", "error": str(e)}
+
+    # Test crumb-less v7
+    try:
+        r = requests.get(
+            f"https://query2.finance.yahoo.com/v7/finance/quote?symbols={symbol}",
+            headers=headers, timeout=10
+        )
+        results["v7_query2"] = {"status": r.status_code, "works": r.status_code == 200}
+        if r.status_code == 200:
+            data = r.json()
+            quotes = data.get("quoteResponse", {}).get("result", [])
+            if quotes:
+                q = quotes[0]
+                results["v7_query2_data"] = {
+                    "marketCap": q.get("marketCap"),
+                    "trailingPE": q.get("trailingPE"),
+                    "beta": q.get("beta"),
+                }
+    except Exception as e:
+        results["v7_query2"] = {"status": "error", "error": str(e)}
+
+    return results
