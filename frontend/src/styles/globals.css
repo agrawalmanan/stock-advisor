@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* ===== DARK MODE (default) ===== */
+.dark body {
+  background-color: #0f1117;
+  color: #e1e4ea;
+}
+
+/* ===== LIGHT MODE ===== */
+body {
+  background-color: #f5f7fa;
+  color: #1a1d29;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar {
+  width: 6px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #1a1d29;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #2a2d3a;
+  border-radius: 3px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3a3d4a;
+}
+
+/* Light mode scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}
+::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a0a0a0;
+}
+
+/* Skeleton animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.dark .skeleton {
+  background: linear-gradient(
+    90deg,
+    #1a1d29 25%,
+    #2a2d3a 50%,
+    #1a1d29 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #e2e8f0 25%,
+    #f1f5f9 50%,
+    #e2e8f0 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* ===== UNIVERSAL THEME CLASSES ===== */
+/* These auto-switch between light and dark */
+
+/* Cards */
+.theme-card {
+  @apply dark:bg-dark-card dark:border-dark-border bg-white border-gray-200;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Inner cards / nested backgrounds */
+.theme-card-inner {
+  @apply dark:bg-dark-bg/50 dark:border-dark-border/50 bg-gray-50 border-gray-200/50;
+}
+
+/* Text */
+.theme-text {
+  @apply dark:text-dark-text text-gray-900;
+}
+
+.theme-text-muted {
+  @apply dark:text-dark-muted text-gray-500;
+}
+
+/* Borders */
+.theme-border {
+  @apply dark:border-dark-border border-gray-200;
+}
+
+/* Input */
+.theme-input {
+  @apply dark:bg-dark-card dark:border-dark-border dark:text-dark-text dark:placeholder:text-dark-muted
+         bg-white border-gray-300 text-gray-900 placeholder:text-gray-400;
+}
+
+/* Dropdown */
+.theme-dropdown {
+  @apply dark:bg-dark-card dark:border-dark-border bg-white border-gray-200 shadow-2xl;
+}
+
+/* Hover */
+.theme-hover {
+  @apply dark:hover:bg-dark-border/50 hover:bg-gray-100;
+}
