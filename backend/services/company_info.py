@@ -28,10 +28,20 @@ def get_company_info(symbol: str) -> dict:
         country = yf_extra.get("country", "India")
         employees = yf_extra.get("employees", "N/A")
 
-        if sector == "Unknown":
-            sector = yf_extra.get("sector") or "Unknown"
+        screener_sector = screener.get("sector")
+        yf_sector = yf_extra.get("sector")
+
+        if screener_sector and screener_sector not in ["Unknown", "Diversified"]:
+            sector = screener_sector
+        elif yf_sector:
+            sector = yf_sector
+        elif screener_sector == "Diversified":
+            sector = "Diversified"
+        else:
+            sector = "Unknown"
+
         if industry == "Unknown":
-            industry = yf_extra.get("industry") or "Unknown"
+            industry = screener.get("industry") or yf_extra.get("industry") or "Unknown"
 
         ai_about = get_ai_company_details(company_name, sector, industry, summary)
 

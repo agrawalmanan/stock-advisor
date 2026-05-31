@@ -35,11 +35,18 @@ def get_stock_data(symbol: str) -> dict:
         return {"error": f"Stock '{symbol}' not found or market closed"}
 
     # Sector
-    sector = (
-        screener.get("sector") or
-        yf_info.get("sector") or
-        meta.get("sector", "Unknown")
-    )
+    screener_sector = screener.get("sector")
+    yf_sector = yf_info.get("sector")
+
+    if screener_sector and screener_sector not in ["Unknown", "Diversified"]:
+        sector = screener_sector
+    elif yf_sector and yf_sector not in ["Unknown"]:
+        sector = yf_sector
+    elif screener_sector == "Diversified":
+        sector = "Diversified"
+    else:
+        sector = meta.get("sector", "Unknown")
+
 
     peers = meta.get("peers", [])
     if not peers:

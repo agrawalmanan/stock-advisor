@@ -83,23 +83,23 @@ def get_screener_data(symbol: str) -> dict:
 
             # ========== INDUSTRY/SECTOR ==========
             industry = "Unknown"
-            # Try company info section
-            company_info = soup.select_one(".company-info")
-            if company_info:
-                for a in company_info.select("a"):
-                    href = a.get("href", "")
-                    if "/sector/" in href:
-                        industry = a.get_text(strip=True)
-                        break
+            sector = "Unknown"
 
-            # Fallback: search all links
-            if industry == "Unknown":
-                for a in soup.select("a"):
-                    href = a.get("href", "")
-                    if "/sector/" in href:
-                        industry = a.get_text(strip=True)
-                        break
+            # Method 1: Extract from About text using keywords
+            about_el = soup.select_one(".company-info .about, .company-info p, .company-info")
+            about_text = ""
+            if about_el:
+                about_text = about_el.get_text(" ", strip=True).lower()
 
+            # Also check company name for clues
+            name_el = soup.select_one("h1")
+            company_name = name_el.get_text(strip=True) if name_el else clean_symbol
+
+            # Combine name + about for detection
+            detect_text = f"{company_name} {about_text}".lower()
+
+            # Detect industry from text
+            industry = _detect_industry_from_text(detect_text)
             sector = _map_industry_to_sector(industry)
 
             # ========== PROFIT & LOSS TABLE ==========
@@ -267,6 +267,98 @@ def _empty_screener_result():
 
 def get_screener_fundamentals(symbol: str) -> dict:
     return get_screener_data(symbol)
+
+def _detect_industry_from_text(text: str) -> str:
+    """
+    Detect industry from company description text
+    Uses ORDERED list — most specific keywords first
+    Returns on FIRST match to avoid conflicts
+    """
+    text = text.lower()
+
+    # ORDERED — most specific first, generic last
+    INDUSTRY_KEYWORDS = [
+        # Very specific first
+        ("Paints", ["paint", "coating", "decorative paint", "wall paint", "home decor company"]),
+        ("Steel", ["steel company", "steel manufacturing", "steel product", "steel ltd", "stainless steel", "hot rolled", "cold rolled"]),
+        ("Cement", ["cement", "clinker", "ready mix concrete"]),
+        ("Jewellery", ["jewellery", "jewelry", "gems", "precious stone", "diamond"]),
+        ("Aviation", ["airline", "aviation", "aircraft", "airport"]),
+
+        # IT - before generic "tech"
+        ("IT Services", ["it services", "software service", "consulting and business solutions", "information technology", "digital transformation", "saas platform", "tata consultancy", "infosys", "wipro", "hcl tech", "tech mahindra"]),
+
+        # Banking - before generic "finance"
+        ("Banking", ["banking", "private sector bank", "public sector bank", "commercial bank", "bank ltd", "bank limited"]),
+
+        # Pharma - before generic "health"
+        ("Pharmaceuticals", ["pharma", "pharmaceutical", "formulation", "active pharma", "generic medicine", "bulk drug", "drug manufacturer"]),
+        ("Healthcare", ["hospital", "healthcare", "diagnostic", "pathology", "medical device"]),
+
+        # Auto
+        ("Automobile", ["automobile", "automotive", "passenger vehicle", "commercial vehicle", "two wheeler", "three wheeler", "tractor", "auto component", "tyre", "tire"]),
+
+        # FMCG
+        ("FMCG", ["fmcg", "fast moving consumer", "personal care", "home care", "food product", "beverage", "dairy", "biscuit", "soap", "detergent", "shampoo", "toothpaste", "tobacco", "cigarette"]),
+
+        # Metals — after Steel (steel is more specific)
+        ("Metals & Mining", ["metal", "mining", "aluminium", "aluminum", "copper smelter", "zinc", "lead", "ore mining"]),
+
+        # Oil & Gas — specific keywords only
+        ("Oil & Gas", ["oil and gas", "petroleum", "oil refiner", "natural gas", "petrochemical", "lng terminal", "crude oil", "oil exploration"]),
+
+        # Power
+        ("Power & Utilities", ["power generation", "power distribution", "electricity", "thermal power", "hydro power", "solar energy", "wind energy", "renewable energy"]),
+
+        # Infrastructure
+        ("Infrastructure", ["infrastructure", "construction company", "engineering company", "capital goods", "heavy engineering", "turnkey"]),
+
+        # Financial Services — after Banking
+        ("Financial Services", ["nbfc", "finance company", "lending", "insurance", "mutual fund", "asset management", "broking", "capital market", "housing finance"]),
+
+        # Telecom
+        ("Telecom", ["telecom", "telecommunication", "mobile operator", "broadband", "wireless", "cellular"]),
+
+        # Real Estate
+        ("Real Estate", ["real estate", "realty", "property developer", "residential project", "township", "builder"]),
+
+        # Chemicals
+        ("Chemicals", ["chemical", "specialty chemical", "agrochemical", "fertilizer", "pesticide", "dye", "pigment"]),
+
+        # Textiles
+        ("Textiles", ["textile", "yarn", "fabric", "garment", "apparel", "spinning mill"]),
+
+        # Media
+        ("Media & Entertainment", ["media company", "entertainment", "broadcast", "television", "film production", "digital media"]),
+
+        # Defence
+        ("Defence", ["defence", "defense", "aerospace", "missile", "ammunition", "military", "naval"]),
+
+        # Retail
+        ("Retail", ["retail chain", "e-commerce", "online marketplace", "department store", "supermarket"]),
+
+        # Hotels
+        ("Hotels & Tourism", ["hotel", "resort", "hospitality", "tourism", "travel"]),
+
+        # Logistics
+        ("Logistics", ["logistics", "shipping", "freight", "warehouse", "courier", "supply chain"]),
+
+        # Electronics
+        ("Electronics", ["electronics", "consumer electronics", "electronic manufacturing"]),
+
+        # Paper
+        ("Paper & Packaging", ["paper", "packaging", "corrugated", "carton"]),
+
+        # Diversified — last resort
+        ("Diversified", ["diversified", "conglomerate", "multiple business"]),
+    ]
+
+    for industry, keywords in INDUSTRY_KEYWORDS:
+        for keyword in keywords:
+            if keyword in text:
+                return industry
+
+    return "Unknown"
 
 
 def _map_industry_to_sector(industry: str) -> str:
