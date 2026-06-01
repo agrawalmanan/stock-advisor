@@ -15,24 +15,18 @@ const PeerComparison = ({ symbol, sector }) => {
   const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
-      console.log('PeerComparison useEffect fired, symbol:', symbol);
-      if (!symbol) return;
-
+      
       const fetchPeers = async () => {
         setLoading(true);
         setError(false);
-        console.log('Fetching peers for:', symbol);
         try {
           const data = await getPeers(symbol);
-          console.log('Peers response:', data);
           const validPeers = (data.peers || []).filter(
             (p) => p && p.current_price && p.current_price !== 'N/A'
           );
-          console.log('Valid peers:', validPeers.length);
           setPeers(validPeers);
           setIndustryMedian(data.industry_median || {});
         } catch (err) {
-          console.error('Peer fetch error:', err);
           setPeers([]);
           setError(true);
         }

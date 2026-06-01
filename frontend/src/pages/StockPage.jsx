@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import StockHeader from '../components/stock/StockHeader';
 import StockDetails from '../components/stock/StockDetails';
@@ -10,11 +10,9 @@ import AiAdvice from '../components/advice/AiAdvice';
 import NewsSection from '../components/advice/NewsSection';
 import PeerComparison from '../components/peers/PeerComparison';
 import RiskMeter from '../components/risk/RiskMeter';
+import CompanySidebar from '../components/company/CompanySidebar';
 import Disclaimer from '../components/ui/Disclaimer';
 import ErrorMessage from '../components/ui/ErrorMessage';
-import CompanySidebar from '../components/company/CompanySidebar';
-import ErrorBoundary from '../components/ui/ErrorBoundary';
-
 import {
   StockHeaderSkeleton,
   StockDetailsSkeleton,
@@ -31,70 +29,56 @@ const StockPage = () => {
   const [advice, setAdvice] = useState(null);
   const [news, setNews] = useState(null);
   const [analysisPeriod, setAnalysisPeriod] = useState('3mo');
-
   const [loadingStock, setLoadingStock] = useState(true);
   const [loadingAnalysis, setLoadingAnalysis] = useState(true);
   const [loadingAdvice, setLoadingAdvice] = useState(true);
   const [loadingNews, setLoadingNews] = useState(true);
-
   const [error, setError] = useState(null);
+  const fetchedRef = useRef(null);
 
-  // Save to recent searches
   const saveRecentSearch = (data) => {
     try {
       const recent = JSON.parse(localStorage.getItem('recentSearches') || '[]');
       const filtered = recent.filter((s) => s.symbol !== symbol);
       filtered.unshift({ symbol, name: data.name });
       localStorage.setItem('recentSearches', JSON.stringify(filtered.slice(0, 5)));
-    } catch (e) {
-      console.error('Error saving recent search:', e);
-    }
+    } catch (e) {}
   };
 
-  // Fetch all data
   useEffect(() => {
+    // Prevent double fetch
+    if (fetchedRef.current === symbol) return;
+    fetchedRef.current = symbol;
+
     if (!symbol) return;
 
+    setStockData(null);
+    setAnalysis(null);
+    setAdvice(null);
+    setNews(null);
+    setError(null);
+    setLoadingStock(true);
+    setLoadingAnalysis(true);
+    setLoadingAdvice(true);
+    setLoadingNews(true);
+
     const fetchAll = async () => {
-      // Reset
-      setStockData(null);
-      setAnalysis(null);
-      setAdvice(null);
-      setNews(null);
-      setError(null);
-
       // Stock data
-      setLoadingStock(true);
-      const fetchWithRetry = async (retries = 3) => {
-          for (let i = 0; i < retries; i++) {
-              try {
-                  const data = await getStockData(symbol);
-                  return data;
-              } catch (err) {
-                  const msg = err.response?.data?.detail || err.message || '';
-                  if (msg.includes('Rate') || msg.includes('Too Many') || msg.includes('429')) {
-                      console.log(`Rate limited, retrying in ${(i + 1) * 3}s...`);
-                      await new Promise(r => setTimeout(r, (i + 1) * 3000));
-                  } else {
-                      throw err;
-                  }
-              }
-          }
-          throw new Error('Rate limited. Please wait a moment and try again.');
-      };
-
       try {
-          const data = await fetchWithRetry();
-          setStockData(data);
+        const data = await getStockData(symbol);
+        setStockData(data);
+        saveRecentSearch(data);
       } catch (err) {
-          setError(err.response?.data?.detail || err.message || 'Failed to fetch stock data');
-          setLoadingStock(false);
-          return;
+        setError(err.response?.data?.detail || 'Failed to fetch stock data');
+        setLoadingStock(false);
+        setLoadingAnalysis(false);
+        setLoadingAdvice(false);
+        setLoadingNews(false);
+        return;
       }
-      setLoadingStock(false); 
+      setLoadingStock(false);
 
       // Analysis
-      setLoadingAnalysis(true);
       try {
         const analysisData = await getAnalysis(symbol, analysisPeriod);
         setAnalysis(analysisData);
@@ -104,14 +88,12 @@ const StockPage = () => {
       setLoadingAnalysis(false);
 
       // News
-      setLoadingNews(true);
       getNews(symbol)
         .then((newsData) => setNews(newsData.articles || []))
         .catch((err) => console.error('News error:', err))
         .finally(() => setLoadingNews(false));
 
       // AI Advice
-      setLoadingAdvice(true);
       getAdvice(symbol)
         .then((adviceData) => setAdvice(adviceData))
         .catch((err) => console.error('Advice error:', err))
@@ -121,7 +103,6 @@ const StockPage = () => {
     fetchAll();
   }, [symbol]);
 
-  // Period change
   const handlePeriodChange = async (newPeriod) => {
     setAnalysisPeriod(newPeriod);
     setLoadingAnalysis(true);
@@ -136,7 +117,6 @@ const StockPage = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6">
-      {/* Error */}
       {error && (
         <ErrorMessage
           message={error}
@@ -146,27 +126,28 @@ const StockPage = () => {
 
       {/* Stock Header - Full Width */}
       {loadingStock && <StockHeaderSkeleton />}
-      {stockData && <StockHeader data={stockData} />}
+      {stockData && !loadingStock && <StockHeader data={stockData} />}
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 mt-4">
+
         {/* Left Sidebar */}
         <div className="space-y-4">
-          {/* Company Info */}
           {symbol && (
             <CompanySidebar
               symbol={symbol}
               currentPrice={stockData?.current_price}
               stockName={stockData?.name}
             />
-          )}  
+          )}
         </div>
 
         {/* Right Main Content */}
         <div className="space-y-4">
-          {/* Details + Returns */}
+
+          {/* Stock Details */}
           {loadingStock && <StockDetailsSkeleton />}
-          {stockData && (
+          {stockData && !loadingStock && (
             <>
               <StockDetails data={stockData} />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -182,28 +163,38 @@ const StockPage = () => {
           {/* Chart */}
           {loadingStock && <ChartSkeleton />}
           {symbol && !loadingStock && (
-            <ErrorBoundary>
-              <PriceChart symbol={symbol} />
-            </ErrorBoundary>
+            <PriceChart symbol={symbol} />
+          )}
+
+          {/* Technical Analysis */}
+          {loadingAnalysis && <AnalysisSkeleton />}
+          {!loadingAnalysis && analysis && (
+            <TechnicalAnalysis
+              analysis={analysis}
+              period={analysisPeriod}
+              onPeriodChange={handlePeriodChange}
+              symbol={symbol}
+            />
           )}
 
           {/* AI Advice */}
           {loadingAdvice && <AdviceSkeleton />}
-          {advice && <AiAdvice advice={advice.advice} />}
+          {!loadingAdvice && advice && (
+            <AiAdvice advice={advice.advice} />
+          )}
 
           {/* News */}
           {loadingNews && <AnalysisSkeleton />}
-          {!loadingNews && <NewsSection news={news} />}
+          {!loadingNews && (
+            <NewsSection news={news || []} />
+          )}
 
-          {/* Peers */}
-          {stockData && (
-            <ErrorBoundary>
-              {console.log('Rendering PeerComparison with:', stockData?.symbol, stockData?.sector)}
-              <PeerComparison
-                symbol={stockData.symbol}
-                sector={stockData.sector}
-              />
-            </ErrorBoundary>
+          {/* Peer Comparison */}
+          {stockData && !loadingStock && (
+            <PeerComparison
+              symbol={stockData.symbol}
+              sector={stockData.sector}
+            />
           )}
 
           {/* Disclaimer */}
