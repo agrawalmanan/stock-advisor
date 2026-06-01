@@ -4,9 +4,8 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api
 
 const api = axios.create({
   baseURL: API_BASE,
-  timeout: 30000, // 30 seconds (AI advice takes time)
+  timeout: 120000,  // 2 minutes — handles Render cold start
 });
-
 export const searchStocks = async (query) => {
   const res = await api.get(`/search?q=${encodeURIComponent(query)}`);
   return res.data;
