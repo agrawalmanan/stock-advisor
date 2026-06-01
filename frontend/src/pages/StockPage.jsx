@@ -13,6 +13,7 @@ import RiskMeter from '../components/risk/RiskMeter';
 import Disclaimer from '../components/ui/Disclaimer';
 import ErrorMessage from '../components/ui/ErrorMessage';
 import CompanySidebar from '../components/company/CompanySidebar';
+import ErrorBoundary from '../components/ui/ErrorBoundary';
 
 import {
   StockHeaderSkeleton,
@@ -180,17 +181,10 @@ const StockPage = () => {
 
           {/* Chart */}
           {loadingStock && <ChartSkeleton />}
-          {symbol && !loadingStock && <PriceChart symbol={symbol} />}
-
-          {/* Technical Analysis */}
-          {loadingAnalysis && <AnalysisSkeleton />}
-          {analysis && (
-            <TechnicalAnalysis
-              analysis={analysis}
-              period={analysisPeriod}
-              onPeriodChange={handlePeriodChange}
-              symbol={symbol}
-            />
+          {symbol && !loadingStock && (
+            <ErrorBoundary>
+              <PriceChart symbol={symbol} />
+            </ErrorBoundary>
           )}
 
           {/* AI Advice */}
@@ -203,10 +197,12 @@ const StockPage = () => {
 
           {/* Peers */}
           {stockData && (
-            <PeerComparison
-              symbol={stockData.symbol}
-              sector={stockData.sector}
-            />
+            <ErrorBoundary>
+              <PeerComparison
+                symbol={stockData.symbol}
+                sector={stockData.sector}
+              />
+            </ErrorBoundary>
           )}
 
           {/* Disclaimer */}

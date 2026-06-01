@@ -10,10 +10,20 @@ const PriceChart = ({ symbol }) => {
   const [period, setPeriod] = useState('3mo');
   const [loading, setLoading] = useState(true);
   const [isDark, setIsDark] = useState(true);
+  const mountedRef = useRef(true);
+
+  // Track mount state
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Detect theme changes
   useEffect(() => {
     const observer = new MutationObserver(() => {
+      if (!mountedRef.current) return;
       const dark = document.documentElement.classList.contains('dark');
       setIsDark(dark);
     });
@@ -24,23 +34,39 @@ const PriceChart = ({ symbol }) => {
 
   // Update chart colors when theme changes
   useEffect(() => {
-    if (!chartRef.current) return;
-    chartRef.current.applyOptions({
-      layout: {
-        background: { color: isDark ? '#1a1d29' : '#ffffff' },
-        textColor: isDark ? '#8b8fa3' : '#718096',
-      },
-      grid: {
-        vertLines: { color: isDark ? '#2a2d3a' : '#e2e8f0' },
-        horzLines: { color: isDark ? '#2a2d3a' : '#e2e8f0' },
-      },
-      timeScale: { borderColor: isDark ? '#2a2d3a' : '#e2e8f0' },
-      rightPriceScale: { borderColor: isDark ? '#2a2d3a' : '#e2e8f0' },
-    });
+    if (!chartRef.current || !mountedRef.current) return;
+    try {
+      chartRef.current.applyOptions({
+        layout: {
+          background: { color: isDark ? '#1a1d29' : '#ffffff' },
+          textColor: isDark ? '#8b8fa3' : '#718096',
+        },
+        grid: {
+          vertLines: { color: isDark ? '#2a2d3a' : '#e2e8f0' },
+          horzLines: { color: isDark ? '#2a2d3a' : '#e2e8f0' },
+        },
+        timeScale: { borderColor: isDark ? '#2a2d3a' : '#e2e8f0' },
+        rightPriceScale: { borderColor: isDark ? '#2a2d3a' : '#e2e8f0' },
+      });
+    } catch (e) {
+      // Chart might be disposed, ignore
+    }
   }, [isDark]);
 
+  // Create chart on mount, destroy on unmount
   useEffect(() => {
     if (!chartContainerRef.current) return;
+
+    // Clean up existing chart
+    if (chartRef.current) {
+      try {
+        chartRef.current.remove();
+      } catch (e) {
+        // Already disposed
+      }
+      chartRef.current = null;
+      seriesRef.current = null;
+    }
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
@@ -86,33 +112,49 @@ const PriceChart = ({ symbol }) => {
     seriesRef.current = series;
 
     const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      if (chartContainerRef.current && chartRef.current && mountedRef.current) {
+        try {
+          chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+        } catch (e) {
+          // Disposed
+        }
       }
     };
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      chart.remove();
+      try {
+        chart.remove();
+      } catch (e) {
+        // Already disposed
+      }
+      chartRef.current = null;
+      seriesRef.current = null;
     };
-  }, []);
+  }, [symbol]); // Recreate chart when symbol changes
 
+  // Fetch chart data when symbol or period changes
   useEffect(() => {
     const fetchData = async () => {
-      if (!symbol || !seriesRef.current) return;
+      if (!symbol || !seriesRef.current || !mountedRef.current) return;
 
       setLoading(true);
       try {
         const data = await getChartData(symbol, period);
-        if (data.candles && data.candles.length > 0) {
-          seriesRef.current.setData(data.candles);
-          chartRef.current?.timeScale().fitContent();
+        if (!mountedRef.current) return;
+        if (data.candles && data.candles.length > 0 && seriesRef.current) {
+          try {
+            seriesRef.current.setData(data.candles);
+            chartRef.current?.timeScale().fitContent();
+          } catch (e) {
+            // Chart disposed during fetch
+          }
         }
       } catch (err) {
         console.error('Chart data error:', err);
       }
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     };
 
     fetchData();

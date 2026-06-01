@@ -38,6 +38,10 @@ def get_screener_data(symbol: str) -> dict:
 
     clean_symbol = symbol.replace(".NS", "").upper()
 
+    SYMBOL_ALIASES = {
+        "TATAMOTORS": "TATAMTRDVR",  # Try alternate if main fails
+    }
+
     urls = [
         f"https://www.screener.in/company/{clean_symbol}/consolidated/",
         f"https://www.screener.in/company/{clean_symbol}/",
@@ -85,15 +89,15 @@ def get_screener_data(symbol: str) -> dict:
             industry = "Unknown"
             sector = "Unknown"
 
-            # Method 1: Extract from About text using keywords
-            about_el = soup.select_one(".company-info .about, .company-info p, .company-info")
-            about_text = ""
-            if about_el:
-                about_text = about_el.get_text(" ", strip=True).lower()
-
-            # Also check company name for clues
+            # Get company name
             name_el = soup.select_one("h1")
             company_name = name_el.get_text(strip=True) if name_el else clean_symbol
+
+            # Get about text from company-info section
+            about_el = soup.select_one(".company-info")
+            about_text = ""
+            if about_el:
+                about_text = about_el.get_text(" ", strip=True)
 
             # Combine name + about for detection
             detect_text = f"{company_name} {about_text}".lower()
@@ -107,6 +111,8 @@ def get_screener_data(symbol: str) -> dict:
             revenue_growth = None
             profit_growth = None
             net_profit_latest = None
+            equity_capital = 0
+            reserves = 0
 
             for section in soup.select("section"):
                 heading = section.select_one("h2")
@@ -131,7 +137,7 @@ def get_screener_data(symbol: str) -> dict:
                                     opm = _to_float(cells[-1])
 
                             # Sales for revenue growth
-                            if "sales" in row_label:
+                            if row_label.startswith("sales"):
                                 if len(cells) >= 3:
                                     prev_sales = _to_float(cells[-2])
                                     curr_sales = _to_float(cells[-1])
@@ -145,13 +151,12 @@ def get_screener_data(symbol: str) -> dict:
                                     curr_profit = _to_float(cells[-1])
                                     if prev_profit and curr_profit and prev_profit > 0:
                                         profit_growth = safe_round(((curr_profit - prev_profit) / prev_profit) * 100)
-                                    if len(cells) >= 2:
-                                        net_profit_latest = _to_float(cells[-1])
+                                if len(cells) >= 2:
+                                    net_profit_latest = _to_float(cells[-1])
 
             # ========== BALANCE SHEET TABLE ==========
             debt_to_equity = None
             total_borrowings = None
-            total_equity = None
 
             for section in soup.select("section"):
                 heading = section.select_one("h2")
@@ -169,24 +174,22 @@ def get_screener_data(symbol: str) -> dict:
 
                             row_label = cells[0].lower()
 
-                            # Borrowings
                             if "borrowing" in row_label:
                                 if len(cells) >= 2:
                                     total_borrowings = _to_float(cells[-1])
 
-                            # Equity + Reserves
                             if "reserves" in row_label:
                                 if len(cells) >= 2:
-                                    reserves = _to_float(cells[-1])
+                                    reserves = _to_float(cells[-1]) or 0
 
                             if "equity capital" in row_label:
                                 if len(cells) >= 2:
-                                    equity_capital = _to_float(cells[-1])
+                                    equity_capital = _to_float(cells[-1]) or 0
 
                         # Calculate D/E
                         try:
                             if total_borrowings is not None:
-                                total_eq = (equity_capital or 0) + (reserves or 0)
+                                total_eq = equity_capital + reserves
                                 if total_eq > 0:
                                     debt_to_equity = safe_round(total_borrowings / total_eq)
                         except Exception:
@@ -215,12 +218,6 @@ def get_screener_data(symbol: str) -> dict:
                                     fii_holding = val
                                 elif "dii" in label or "domestic" in label:
                                     dii_holding = val
-
-            # ========== PROFIT MARGIN ==========
-            profit_margin = None
-            if net_profit_latest and market_cap:
-                # Approximate: we have sales from P&L
-                pass  # We'll use OPM instead
 
             result = {
                 "sector": sector,
@@ -268,109 +265,207 @@ def _empty_screener_result():
 def get_screener_fundamentals(symbol: str) -> dict:
     return get_screener_data(symbol)
 
+
 def _detect_industry_from_text(text: str) -> str:
     """
     Detect industry from company description text
-    Uses ORDERED list — most specific keywords first
-    Returns on FIRST match to avoid conflicts
+    Two-pass approach:
+    1. First try specific multi-word phrases
+    2. Then try simpler single-word keywords as fallback
     """
     text = text.lower()
 
-    # ORDERED — most specific first, generic last
-    INDUSTRY_KEYWORDS = [
-        # Very specific first
-        ("Paints", ["paint", "coating", "decorative paint", "wall paint", "home decor company"]),
-        ("Steel", ["steel company", "steel manufacturing", "steel product", "steel ltd", "stainless steel", "hot rolled", "cold rolled"]),
-        ("Cement", ["cement", "clinker", "ready mix concrete"]),
-        ("Jewellery", ["jewellery", "jewelry", "gems", "precious stone", "diamond"]),
-        ("Aviation", ["airline", "aviation", "aircraft", "airport"]),
-
-        # IT - before generic "tech"
-        ("IT Services", ["it services", "software service", "consulting and business solutions", "information technology", "digital transformation", "saas platform", "tata consultancy", "infosys", "wipro", "hcl tech", "tech mahindra"]),
-
-        # Banking - before generic "finance"
-        ("Banking", ["banking", "private sector bank", "public sector bank", "commercial bank", "bank ltd", "bank limited"]),
-
-        # Pharma - before generic "health"
-        ("Pharmaceuticals", ["pharma", "pharmaceutical", "formulation", "active pharma", "generic medicine", "bulk drug", "drug manufacturer"]),
-        ("Healthcare", ["hospital", "healthcare", "diagnostic", "pathology", "medical device"]),
-
-        # Auto
-        ("Automobile", ["automobile", "automotive", "passenger vehicle", "commercial vehicle", "two wheeler", "three wheeler", "tractor", "auto component", "tyre", "tire"]),
-
-        # FMCG
-        ("FMCG", ["fmcg", "fast moving consumer", "personal care", "home care", "food product", "beverage", "dairy", "biscuit", "soap", "detergent", "shampoo", "toothpaste", "tobacco", "cigarette"]),
-
-        # Metals — after Steel (steel is more specific)
-        ("Metals & Mining", ["metal", "mining", "aluminium", "aluminum", "copper smelter", "zinc", "lead", "ore mining"]),
-
-        # Oil & Gas — specific keywords only
-        ("Oil & Gas", ["oil and gas", "petroleum", "oil refiner", "natural gas", "petrochemical", "lng terminal", "crude oil", "oil exploration"]),
-
-        # Power
-        ("Power & Utilities", ["power generation", "power distribution", "electricity", "thermal power", "hydro power", "solar energy", "wind energy", "renewable energy"]),
-
-        # Infrastructure
-        ("Infrastructure", ["infrastructure", "construction company", "engineering company", "capital goods", "heavy engineering", "turnkey"]),
-
-        # Financial Services — after Banking
-        ("Financial Services", ["nbfc", "finance company", "lending", "insurance", "mutual fund", "asset management", "broking", "capital market", "housing finance"]),
-
-        # Telecom
-        ("Telecom", ["telecom", "telecommunication", "mobile operator", "broadband", "wireless", "cellular"]),
-
-        # Real Estate
-        ("Real Estate", ["real estate", "realty", "property developer", "residential project", "township", "builder"]),
-
-        # Chemicals
-        ("Chemicals", ["chemical", "specialty chemical", "agrochemical", "fertilizer", "pesticide", "dye", "pigment"]),
-
-        # Textiles
-        ("Textiles", ["textile", "yarn", "fabric", "garment", "apparel", "spinning mill"]),
-
-        # Media
-        ("Media & Entertainment", ["media company", "entertainment", "broadcast", "television", "film production", "digital media"]),
-
-        # Defence
-        ("Defence", ["defence", "defense", "aerospace", "missile", "ammunition", "military", "naval"]),
-
-        # Retail
-        ("Retail", ["retail chain", "e-commerce", "online marketplace", "department store", "supermarket"]),
-
-        # Hotels
-        ("Hotels & Tourism", ["hotel", "resort", "hospitality", "tourism", "travel"]),
-
-        # Logistics
-        ("Logistics", ["logistics", "shipping", "freight", "warehouse", "courier", "supply chain"]),
-
-        # Electronics
-        ("Electronics", ["electronics", "consumer electronics", "electronic manufacturing"]),
-
-        # Paper
-        ("Paper & Packaging", ["paper", "packaging", "corrugated", "carton"]),
-
-        # Diversified — last resort
-        ("Diversified", ["diversified", "conglomerate", "multiple business"]),
+    # ===== PASS 1: Specific multi-word phrases (highest accuracy) =====
+    SPECIFIC_KEYWORDS = [
+        ("Paints", [
+            "paint company", "paints ltd", "paints limited", "wall paint",
+            "decorative paint", "selling of paints", "manufacturing of paints",
+            "manufacturing and selling of paints", "asian paints", "berger paints",
+            "kansai nerolac", "paint manufacturer"
+        ]),
+        ("Steel", [
+            "steel company", "steel ltd", "steel limited", "steel manufacturing",
+            "integrated steel", "steel product", "iron and steel", "steel plant",
+            "sponge iron plant"
+        ]),
+        ("Cement", [
+            "cement company", "cement ltd", "cement limited", "cement manufacturer",
+            "manufacturing of cement", "clinker capacity"
+        ]),
+        ("Jewellery", [
+            "jewellery", "jewelry", "gems and jewel", "diamond company",
+            "gold ornament", "precious metal"
+        ]),
+        ("IT Services", [
+            "it services", "it consulting", "software service", "information technology",
+            "consulting and business solutions", "tata consultancy", "software company",
+            "software solutions", "digital transformation company"
+        ]),
+        ("Banking", [
+            "banking company", "private sector bank", "public sector bank",
+            "bank ltd", "bank limited", "banking and financial", "scheduled bank",
+            "commercial bank"
+        ]),
+        ("Pharmaceuticals", [
+            "pharmaceutical", "pharma company", "pharma ltd",
+            "active pharma ingredient", "generic medicine", "bulk drug",
+            "drug manufacturer", "formulations and api"
+        ]),
+        ("Healthcare", [
+            "hospital company", "healthcare service", "diagnostic lab",
+            "pathology", "medical device", "healthcare provider"
+        ]),
+        ("Financial Services", [
+            "payment solution", "payment platform", "payment gateway",
+            "fintech company", "non-banking finance", "nbfc", "finance company ltd",
+            "investment & finance", "insurance company", "mutual fund",
+            "asset management", "housing finance", "microfinance",
+            "financial service"
+        ]),
+        ("Automobile", [
+            "automobile company", "automotive company", "vehicle manufacturer",
+            "two-wheeler", "three-wheeler", "two wheeler", "three wheeler",
+            "motorcycle manufacturer", "car manufacturer", "tractor manufacturer",
+            "auto component", "tyre manufacturer", "passenger vehicle",
+            "commercial vehicle manufacturer"
+        ]),
+        ("FMCG", [
+            "fmcg business", "fmcg company", "fast moving consumer",
+            "personal care product", "home care product", "food product company",
+            "food segment", "beverage company", "dairy product",
+            "soap and detergent", "consumer goods"
+        ]),
+        ("Metals & Mining", [
+            "aluminium company", "aluminum smelter", "copper smelter",
+            "zinc company", "mining company", "ore mining",
+            "production of aluminium", "production of copper",
+            "aluminium and copper", "non-ferrous metal",
+            "hindalco", "vedanta limited", "nalco", "hindustan copper"
+        ]),
+        ("Oil & Gas", [
+            "oil and gas", "petroleum company", "oil refiner",
+            "crude oil and natural gas", "petrochemical", "lng terminal",
+            "oil exploration", "refining of crude"
+        ]),
+        ("Power & Utilities", [
+            "power generation", "power company", "power distribution",
+            "electricity generation", "thermal power", "hydro power",
+            "solar energy company", "wind energy company", "renewable energy company",
+            "power transmission", "power corporation"
+        ]),
+        ("Infrastructure", [
+            "infrastructure company", "construction company",
+            "engineering company", "engineering procurement",
+            "capital goods", "heavy engineering", "epc company",
+            "multinational conglomerate which is primarily engaged in providing engineering"
+        ]),
+        ("Telecom", [
+            "telecom company", "telecommunication", "mobile operator",
+            "broadband provider", "wireless service", "cellular operator"
+        ]),
+        ("Real Estate", [
+            "real estate", "realty company", "property developer",
+            "residential project", "township developer", "housing project"
+        ]),
+        ("Chemicals", [
+            "chemical company", "chemical ltd", "specialty chemical",
+            "agrochemical", "fertilizer company", "pesticide",
+            "adhesives and sealants", "construction chemicals"
+        ]),
+        ("Textiles", [
+            "textile company", "textile ltd", "yarn manufacturer",
+            "garment manufacturer", "spinning mill"
+        ]),
+        ("Defence", [
+            "defence equipment", "defense equipment", "defence ltd",
+            "defence limited", "missile system", "ammunition manufacturer",
+            "military equipment", "defence electronics", "naval shipbuilding",
+            "electronic equipment and systems to the def",
+            "bharat dynamics", "hindustan aeronautics", "mazagon dock"
+        ]),
+        ("Media & Entertainment", [
+            "media company", "entertainment company", "broadcast",
+            "television channel", "film production"
+        ]),
+        ("Retail", [
+            "retail company", "retailing of apparel", "retailing of",
+            "retail chain", "e-commerce company", "department store",
+            "supermarket chain", "retail business"
+        ]),
+        ("Hotels & Tourism", [
+            "hotel company", "hotel chain", "hospitality company",
+            "leading hospitality", "diversified portfolio of hotels"
+        ]),
+        ("Logistics", [
+            "logistics company", "shipping company", "freight",
+            "courier company", "supply chain company"
+        ]),
+        ("Electronics", [
+            "electronics company", "consumer electronics",
+            "electronic manufacturing"
+        ]),
+        ("Paper & Packaging", [
+            "paper company", "paper ltd", "packaging company"
+        ]),
+        ("Aviation", [
+            "airline company", "aviation company", "aircraft operator"
+        ]),
     ]
 
-    for industry, keywords in INDUSTRY_KEYWORDS:
+    for industry, keywords in SPECIFIC_KEYWORDS:
+        for keyword in keywords:
+            if keyword in text:
+                return industry
+
+    # ===== PASS 2: Simpler keywords (catches remaining) =====
+    SIMPLE_KEYWORDS = [
+        ("Paints", ["paints", "paint "]),
+        ("Steel", ["steel "]),
+        ("Cement", ["cement"]),
+        ("IT Services", ["software", "infosys", "wipro", "hcl tech"]),
+        ("Banking", [" bank ", " bank.", "banking"]),
+        ("Pharmaceuticals", ["pharma", "drug", "medicine"]),
+        ("Healthcare", ["hospital", "healthcare", "diagnostic"]),
+        ("Automobile", ["motorcycle", "scooter", "vehicle", "automobile", "auto ", "tyre", "tire"]),
+        ("FMCG", ["fmcg", "consumer product", "food and beverage", "personal care", "home care", "tobacco", "cigarette"]),
+        ("Metals & Mining", ["aluminium", "aluminum", "copper", "zinc", "mining", "smelter"]),
+        ("Oil & Gas", ["crude oil", "natural gas", "petroleum", "refinery", "refining"]),
+        ("Power & Utilities", ["power plant", "electricity", "thermal", "solar", "wind energy", "power generation", "power distribution"]),
+        ("Infrastructure", ["engineering", "infrastructure", "construction"]),
+        ("Financial Services", ["finance", "insurance", "lending", "credit", "loan"]),
+        ("Telecom", ["telecom", "mobile network"]),
+        ("Real Estate", ["real estate", "realty", "property"]),
+        ("Chemicals", ["chemical", "adhesive", "fertilizer", "pesticide"]),
+        ("Textiles", ["textile", "apparel", "fabric", "garment"]),
+        ("Defence", ["defence", "defense", "military"]),
+        ("Retail", ["retail", "retailing"]),
+        ("Hotels & Tourism", ["hotel", "hospitality", "resort"]),
+        ("Logistics", ["logistics", "shipping", "transport", "freight"]),
+        ("Aviation", ["airline", "aviation"]),
+        ("Electronics", ["electronics", "appliance"]),
+        ("Diversified", ["conglomerate", "diversified"]),
+        ("Coal", ["coal mining", "coal production", "coal washeries"]),
+    ]
+
+    for industry, keywords in SIMPLE_KEYWORDS:
         for keyword in keywords:
             if keyword in text:
                 return industry
 
     return "Unknown"
 
-
 def _map_industry_to_sector(industry: str) -> str:
+    """Map detected industry name directly to sector"""
     industry_lower = industry.lower()
 
-    # Check EXACT matches first
+    # EXACT matches first — industry name IS the sector
     EXACT_MAP = {
         "steel": "Steel",
         "it services": "IT Services",
         "banking": "Banking",
         "paints": "Paints",
         "cement": "Cement",
+        "coal": "Metals & Mining",
         "pharmaceuticals": "Pharmaceuticals",
         "healthcare": "Healthcare",
         "automobile": "Automobile",
@@ -385,15 +480,22 @@ def _map_industry_to_sector(industry: str) -> str:
         "defence": "Defence",
         "diversified": "Diversified",
         "metals & mining": "Metals & Mining",
+        "financial services": "Financial Services",
+        "power & utilities": "Power & Utilities",
+        "infrastructure": "Infrastructure",
+        "media & entertainment": "Media & Entertainment",
+        "electronics": "Electronics",
+        "paper & packaging": "Paper & Packaging",
+        "hotels & tourism": "Hotels & Tourism",
+        "jewellery": "Jewellery",
+        "oil & gas": "Oil & Gas",
     }
 
-    # Try exact match on full industry name
     if industry_lower in EXACT_MAP:
         return EXACT_MAP[industry_lower]
 
-    # Then try keyword matching — ORDER MATTERS
+    # Keyword fallback — ORDER MATTERS
     KEYWORD_MAP = [
-        # Most specific first
         ("steel", "Steel"),
         ("paint", "Paints"),
         ("coating", "Paints"),
@@ -401,92 +503,64 @@ def _map_industry_to_sector(industry: str) -> str:
         ("jewel", "Jewellery"),
         ("airline", "Aviation"),
         ("aviation", "Aviation"),
-
+        ("payment", "Financial Services"),
+        ("fintech", "Financial Services"),
         ("software", "IT Services"),
-        ("it ", "IT Services"),
         ("computer", "IT Services"),
-        ("digital", "IT Services"),
-        ("tech", "IT Services"),
-
         ("bank", "Banking"),
-
         ("pharma", "Pharmaceuticals"),
         ("drug", "Pharmaceuticals"),
         ("hospital", "Healthcare"),
-        ("healthcare", "Healthcare"),
         ("diagnostic", "Healthcare"),
-
-        ("auto", "Automobile"),
-        ("vehicle", "Automobile"),
-        ("tyre", "Automobile"),
         ("two wheeler", "Automobile"),
-
+        ("three wheeler", "Automobile"),
+        ("automobile", "Automobile"),
+        ("tyre", "Automobile"),
         ("fmcg", "FMCG"),
-        ("consumer", "FMCG"),
-        ("food", "FMCG"),
+        ("biscuit", "FMCG"),
         ("beverage", "FMCG"),
-        ("personal care", "FMCG"),
         ("tobacco", "FMCG"),
-
-        # Metals AFTER Steel
-        ("iron", "Metals & Mining"),
-        ("metal", "Metals & Mining"),
-        ("mining", "Metals & Mining"),
         ("aluminium", "Metals & Mining"),
+        ("aluminum", "Metals & Mining"),
         ("copper", "Metals & Mining"),
         ("zinc", "Metals & Mining"),
-
+        ("mining", "Metals & Mining"),
+        ("metal", "Metals & Mining"),
         ("oil", "Oil & Gas"),
-        ("gas", "Oil & Gas"),
         ("petroleum", "Oil & Gas"),
         ("refiner", "Oil & Gas"),
-
         ("power", "Power & Utilities"),
-        ("electric", "Power & Utilities"),
-        ("energy", "Power & Utilities"),
+        ("electricity", "Power & Utilities"),
         ("renewable", "Power & Utilities"),
         ("solar", "Power & Utilities"),
-
         ("infrastructure", "Infrastructure"),
         ("construction", "Infrastructure"),
-        ("engineering", "Infrastructure"),
         ("capital goods", "Infrastructure"),
-
         ("finance", "Financial Services"),
         ("insurance", "Financial Services"),
         ("nbfc", "Financial Services"),
-        ("housing finance", "Financial Services"),
-
+        ("lending", "Financial Services"),
         ("telecom", "Telecom"),
-        ("communication", "Telecom"),
-
         ("real estate", "Real Estate"),
         ("realty", "Real Estate"),
-
         ("textile", "Textiles"),
         ("garment", "Textiles"),
-        ("apparel", "Textiles"),
-
         ("chemical", "Chemicals"),
         ("fertilizer", "Chemicals"),
-        ("pesticide", "Chemicals"),
-
         ("media", "Media & Entertainment"),
         ("entertainment", "Media & Entertainment"),
-
         ("defence", "Defence"),
         ("defense", "Defence"),
         ("aerospace", "Defence"),
-
         ("retail", "Retail"),
         ("hotel", "Hotels & Tourism"),
         ("hospitality", "Hotels & Tourism"),
         ("logistics", "Logistics"),
         ("shipping", "Logistics"),
-        ("transport", "Logistics"),
         ("paper", "Paper & Packaging"),
         ("packaging", "Paper & Packaging"),
         ("electronic", "Electronics"),
+        ("coal", "Metals & Mining"),
         ("diversified", "Diversified"),
     ]
 
@@ -494,4 +568,4 @@ def _map_industry_to_sector(industry: str) -> str:
         if keyword in industry_lower:
             return sector
 
-    return industry if industry != "Unknown" else "Diversified"
+    return industry if industry not in ["Unknown", ""] else "Diversified"
