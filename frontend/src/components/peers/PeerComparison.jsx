@@ -5,6 +5,8 @@ import { formatPrice } from '../../utils/formatters';
 import { getPeers } from '../../utils/api';
 
 const PeerComparison = ({ symbol, sector }) => {
+  console.log('PeerComparison mounted with:', symbol, sector);
+  
   const navigate = useNavigate();
   const [peers, setPeers] = useState([]);
   const [industryMedian, setIndustryMedian] = useState({});
@@ -13,6 +15,7 @@ const PeerComparison = ({ symbol, sector }) => {
   const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
+    console.log('PeerComparison useEffect fired, symbol:', symbol);
     if (!symbol) return;
 
     const fetchPeers = async () => {

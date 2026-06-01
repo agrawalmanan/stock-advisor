@@ -198,6 +198,7 @@ const StockPage = () => {
           {/* Peers */}
           {stockData && (
             <ErrorBoundary>
+              {console.log('Rendering PeerComparison with:', stockData?.symbol, stockData?.sector)}
               <PeerComparison
                 symbol={stockData.symbol}
                 sector={stockData.sector}
