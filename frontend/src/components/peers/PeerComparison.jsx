@@ -4,38 +4,55 @@ import { Users, Loader, ArrowUpDown } from 'lucide-react';
 import { formatPrice } from '../../utils/formatters';
 import { getPeers } from '../../utils/api';
 
+const safeNum = (val) => {
+  if (val === null || val === undefined || val === 'N/A') return null;
+  const n = Number(val);
+  return isNaN(n) ? null : n;
+};
+
 const PeerComparison = ({ symbol, sector }) => {
-  console.log('PeerComparison mounted with:', symbol, sector);
-  
   const navigate = useNavigate();
   const [peers, setPeers] = useState([]);
   const [industryMedian, setIndustryMedian] = useState({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [sortKey, setSortKey] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
-      
-      const fetchPeers = async () => {
-        setLoading(true);
-        setError(false);
-        try {
-          const data = await getPeers(symbol);
-          const validPeers = (data.peers || []).filter(
-            (p) => p && p.current_price && p.current_price !== 'N/A'
-          );
-          setPeers(validPeers);
-          setIndustryMedian(data.industry_median || {});
-        } catch (err) {
-          setPeers([]);
-          setError(true);
-        }
-        setLoading(false);
-      };
+    if (!symbol) {
+      setPeers([]);
+      setIndustryMedian({});
+      setLoading(false);
+      return;
+    }
 
-      fetchPeers();
-    }, [symbol]);
-  // Sorting
+    const fetchPeers = async () => {
+      setLoading(true);
+      setError(false);
+
+      try {
+        const data = await getPeers(symbol);
+
+        const validPeers = (data?.peers || []).filter(
+          (p) => p && p.current_price && p.current_price !== 'N/A'
+        );
+
+        setPeers(validPeers);
+        setIndustryMedian(data?.industry_median || {});
+      } catch (err) {
+        console.error('Peer fetch error:', err);
+        setPeers([]);
+        setIndustryMedian({});
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPeers();
+  }, [symbol]);
+
   const handleSort = (key) => {
     if (sortKey === key) {
       setSortAsc(!sortAsc);
@@ -47,12 +64,10 @@ const PeerComparison = ({ symbol, sector }) => {
 
   const sortedPeers = [...peers].sort((a, b) => {
     if (!sortKey) return 0;
-    let aVal = a[sortKey];
-    let bVal = b[sortKey];
-    if (aVal === 'N/A') aVal = -Infinity;
-    if (bVal === 'N/A') bVal = -Infinity;
-    aVal = Number(aVal) || 0;
-    bVal = Number(bVal) || 0;
+
+    const aVal = safeNum(a?.[sortKey]) ?? -Infinity;
+    const bVal = safeNum(b?.[sortKey]) ?? -Infinity;
+
     return sortAsc ? aVal - bVal : bVal - aVal;
   });
 
@@ -67,6 +82,20 @@ const PeerComparison = ({ symbol, sector }) => {
       </div>
     </th>
   );
+
+  const formatMetric = (val, suffix = '') => {
+    const n = safeNum(val);
+    if (n === null) return 'N/A';
+    return `${n}${suffix}`;
+  };
+
+  const metricColor = (val, goodThreshold, avgThreshold) => {
+    const n = safeNum(val);
+    if (n === null) return 'dark:text-dark-muted text-gray-500';
+    if (n >= goodThreshold) return 'text-profit';
+    if (n >= avgThreshold) return 'text-hold';
+    return 'text-loss';
+  };
 
   if (loading) {
     return (
@@ -83,7 +112,9 @@ const PeerComparison = ({ symbol, sector }) => {
     );
   }
 
-  if (peers.length === 0) return null;
+  if (error || peers.length === 0) {
+    return null;
+  }
 
   return (
     <div className="dark:bg-dark-card bg-white rounded-xl p-6 border dark:border-dark-border border-gray-200 transition-colors">
@@ -113,88 +144,74 @@ const PeerComparison = ({ symbol, sector }) => {
             </tr>
           </thead>
           <tbody>
-            {/* Peer Rows */}
             {sortedPeers.map((peer, i) => {
-              const isPositive = peer.change_pct !== 'N/A' && Number(peer.change_pct) >= 0;
+              const changeNum = safeNum(peer?.change_pct);
+              const isPositive = changeNum !== null && changeNum >= 0;
+
               return (
                 <tr
-                  key={i}
+                  key={peer.symbol || i}
                   onClick={() => navigate(`/stock/${peer.symbol}`)}
                   className="border-b dark:border-dark-border/30 border-gray-100 last:border-0 dark:hover:bg-dark-border/30 hover:bg-gray-50 cursor-pointer transition-colors group"
                 >
                   <td className="py-3 px-2">
                     <p className="dark:text-dark-text text-gray-900 text-sm font-medium group-hover:text-blue-400 transition-colors">
-                      {peer.name}
+                      {peer.name || peer.symbol}
                     </p>
                     <p className="dark:text-dark-muted text-gray-500 text-xs">
-                      {peer.symbol.replace('.NS', '')}
+                      {peer.symbol?.replace('.NS', '')}
                     </p>
                   </td>
                   <td className="text-right dark:text-dark-text text-gray-900 text-sm font-medium py-3 px-2">
                     {formatPrice(peer.current_price)}
                   </td>
-                  <td className={`text-right text-sm font-medium py-3 px-2 ${isPositive ? 'text-profit' : 'text-loss'}`}>
-                    {peer.change_pct !== 'N/A' ? `${isPositive ? '+' : ''}${peer.change_pct}%` : 'N/A'}
+                  <td
+                    className={`text-right text-sm font-medium py-3 px-2 ${
+                      changeNum !== null
+                        ? isPositive
+                          ? 'text-profit'
+                          : 'text-loss'
+                        : 'dark:text-dark-muted text-gray-500'
+                    }`}
+                  >
+                    {changeNum !== null ? `${isPositive ? '+' : ''}${peer.change_pct}%` : 'N/A'}
                   </td>
                   <td className="text-right dark:text-dark-text text-gray-900 text-sm py-3 px-2">
                     {peer.market_cap || 'N/A'}
                   </td>
                   <td className="text-right dark:text-dark-text text-gray-900 text-sm py-3 px-2">
-                    {peer.pe_ratio !== 'N/A' ? peer.pe_ratio : 'N/A'}
+                    {formatMetric(peer.pe_ratio)}
                   </td>
-                  <td className="text-right text-sm font-medium py-3 px-2">
-                    <span className={
-                      peer.roce_pct !== 'N/A' && Number(peer.roce_pct) >= 15
-                        ? 'text-profit'
-                        : peer.roce_pct !== 'N/A' && Number(peer.roce_pct) >= 10
-                          ? 'text-hold'
-                          : peer.roce_pct !== 'N/A'
-                            ? 'text-loss'
-                            : 'dark:text-dark-muted text-gray-500'
-                    }>
-                      {peer.roce_pct !== 'N/A' ? `${peer.roce_pct}%` : 'N/A'}
-                    </span>
+                  <td className={`text-right text-sm font-medium py-3 px-2 ${metricColor(peer.roce_pct, 15, 10)}`}>
+                    {formatMetric(peer.roce_pct, '%')}
                   </td>
-                  <td className="text-right text-sm font-medium py-3 px-2">
-                    <span className={
-                      peer.opm_pct !== 'N/A' && Number(peer.opm_pct) >= 20
-                        ? 'text-profit'
-                        : peer.opm_pct !== 'N/A' && Number(peer.opm_pct) >= 10
-                          ? 'text-hold'
-                          : peer.opm_pct !== 'N/A'
-                            ? 'text-loss'
-                            : 'dark:text-dark-muted text-gray-500'
-                    }>
-                      {peer.opm_pct !== 'N/A' ? `${peer.opm_pct}%` : 'N/A'}
-                    </span>
+                  <td className={`text-right text-sm font-medium py-3 px-2 ${metricColor(peer.opm_pct, 20, 10)}`}>
+                    {formatMetric(peer.opm_pct, '%')}
                   </td>
                 </tr>
               );
             })}
 
-            {/* Industry Median Row */}
             {industryMedian && Object.keys(industryMedian).length > 0 && (
               <tr className="dark:bg-blue-500/5 bg-blue-50 border-t-2 dark:border-blue-500/20 border-blue-200">
                 <td className="py-3 px-2">
                   <p className="text-blue-400 text-sm font-bold">Industry Median</p>
                 </td>
                 <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">
-                  {industryMedian.current_price !== 'N/A' ? formatPrice(industryMedian.current_price) : 'N/A'}
+                  {safeNum(industryMedian.current_price) !== null ? formatPrice(industryMedian.current_price) : '—'}
                 </td>
                 <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">
-                  {industryMedian.change_pct !== 'N/A' ? `${industryMedian.change_pct}%` : 'N/A'}
+                  {safeNum(industryMedian.change_pct) !== null ? `${industryMedian.change_pct}%` : '—'}
+                </td>
+                <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">—</td>
+                <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">
+                  {safeNum(industryMedian.pe_ratio) !== null ? industryMedian.pe_ratio : '—'}
                 </td>
                 <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">
-                  —
+                  {safeNum(industryMedian.roce_pct) !== null ? `${industryMedian.roce_pct}%` : '—'}
                 </td>
                 <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">
-                  {industryMedian.pe_ratio !== 'N/A' ? industryMedian.pe_ratio : 'N/A'}
-                </td>
-                <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">
-                  {industryMedian.roce_pct !== 'N/A' ? `${industryMedian.roce_pct}%` : 'N/A'}
-                </td>
-                <td className="text-right text-blue-400 text-sm font-medium py-3 px-2">
-                  {industryMedian.opm_pct !== 'N/A' ? `${industryMedian.opm_pct}%` : 'N/A'}
+                  {safeNum(industryMedian.opm_pct) !== null ? `${industryMedian.opm_pct}%` : '—'}
                 </td>
               </tr>
             )}
@@ -202,7 +219,6 @@ const PeerComparison = ({ symbol, sector }) => {
         </table>
       </div>
 
-      {/* Legend */}
       <div className="flex items-center gap-4 mt-4 text-xs">
         <span className="dark:text-dark-muted text-gray-500">ROCE/OPM:</span>
         <span className="text-profit">● Good (≥15%/≥20%)</span>
